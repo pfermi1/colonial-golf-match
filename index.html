@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123b63">
+  <title>Colonial Golf Match</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">Colonial Golf Match</p>
+      <h1>Read a scorecard</h1>
+      <p>Upload a clear photo. The first player listed becomes the card label.</p>
+    </header>
+
+    <section class="card" id="uploadPanel">
+      <label class="field">
+        <span>Players on this card</span>
+        <select id="playerCount">
+          <option value="4">4 players</option>
+          <option value="5">5 players</option>
+        </select>
+      </label>
+
+      <label class="upload" for="scorecardFile">
+        <strong>Take or choose scorecard photo</strong>
+        <span>Use a straight, well-lit picture with clear handwriting.</span>
+      </label>
+      <input id="scorecardFile" type="file" accept="image/*" capture="environment">
+
+      <img id="preview" class="preview hidden" alt="Uploaded scorecard preview">
+      <button id="readButton" class="primary" type="button" disabled>Read Scorecard</button>
+      <p id="status" class="status" aria-live="polite"></p>
+    </section>
+
+    <section id="reviewPanel" class="card hidden">
+      <div class="review-head">
+        <div>
+          <p class="eyebrow">Review</p>
+          <h2 id="cardTitle">Scorecard</h2>
+        </div>
+        <button id="enlargeButton" class="secondary" type="button">View photo</button>
+      </div>
+      <p class="help">Tap any name or score to correct it. Yellow boxes were marked uncertain by the reader.</p>
+      <div id="players"></div>
+      <div class="actions">
+        <button id="startOverButton" class="secondary" type="button">Start over</button>
+        <button id="confirmButton" class="primary" type="button">Confirm card</button>
+      </div>
+      <p id="confirmMessage" class="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <dialog id="photoDialog">
+    <button id="closeDialog" class="secondary dialog-close" type="button">Close</button>
+    <img id="dialogImage" alt="Full-size uploaded scorecard">
+  </dialog>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
