@@ -68,3 +68,29 @@ dialog img { width: 100%; max-height: 82vh; object-fit: contain; }
   .ball-row { gap: 4px; }
   .ball-row span, .ball-row strong { min-height: 36px; font-size: 14px; }
 }
+
+.matchups-section { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.section-heading h2 { margin: 3px 0 4px; }
+.section-heading p:last-child { margin: 0 0 14px; color: var(--muted); }
+.matchups { display: grid; gap: 10px; margin-bottom: 18px; }
+.matchup-card { display: flex; justify-content: space-between; align-items: center; gap: 14px; border: 1px solid #cbd8e5; border-radius: 14px; padding: 14px; background: #f8fbfe; }
+.matchup-card h3 { margin: 0 0 4px; font-size: 1rem; }
+.matchup-card p { margin: 0; color: var(--muted); }
+.comparison-section { margin-top: 24px; }
+.comparison-section > h3 { margin: 0 0 12px; color: var(--navy); }
+.nine-comparison { margin: 0 0 24px; }
+.nine-comparison h4 { margin: 0 0 8px; }
+.comparison-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.comparison-table { width: 100%; border-collapse: collapse; min-width: 520px; }
+.comparison-table th, .comparison-table td { padding: 10px 8px; text-align: center; border-bottom: 1px solid #e7edf2; }
+.comparison-table th { background: #edf4f9; color: var(--navy); font-size: .85rem; }
+.comparison-table tbody tr:last-child td { border-bottom: 0; }
+.hole-result { display: inline-block; min-width: 92px; padding: 5px 8px; border-radius: 999px; font-size: .85rem; font-weight: 750; }
+.hole-result.winner-a, .hole-result.winner-b { color: var(--navy); background: #dcecf8; }
+.hole-result.tie { color: #5d6670; background: #eceff2; }
+.hole-counts { margin: 9px 0 0; color: var(--muted); font-size: .9rem; }
+.version-footer { padding: 18px 4px 0; text-align: center; color: var(--muted); font-size: .82rem; }
+@media (max-width: 620px) {
+  .matchup-card { align-items: flex-start; flex-direction: column; }
+  .matchup-card button { width: 100%; }
+}

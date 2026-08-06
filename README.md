@@ -1,22 +1,25 @@
-# Colonial Golf Match v0.4 — Phase 2
+# Colonial Golf Match v0.5
 
-This version adds the score engine and multiple-card round workflow.
+Phase 2 adds the first **hole winner engine**.
 
 ## Included
 
-- AI scorecard reading through a Netlify Function
-- 4-player and 5-player cards
-- Fast one-digit score correction
-- Individual score validation from 1–7
-- Hole-in-one confirmation for a score of 1
-- First player automatically names the card as Team [Name]
-- Save multiple confirmed cards in the browser
-- Automatic player front, back, and total
-- Automatic 1 Ball scores for every hole
-- Automatic 2 Ball scores for 4-player cards
-- Automatic 2+3 Ball totals for 5-player cards
-- View and remove confirmed cards
+- Read and review 4-player or 5-player scorecards
+- Fast one-digit score correction (1-7)
+- First player labels the card as Team [Name]
+- Front, back, and total for every player
+- 1 Ball and 2 Ball calculations for 4-player cards
+- 1 Ball and 2+3 Ball calculations for 5-player cards
+- Multiple confirmed cards in one round
+- Automatic pairings between all confirmed cards
+- Hole-by-hole winner check for every pair of cards
+- Separate Front 9 and Back 9 comparisons
+- "Jacked" shown when a hole ties
 
-## Next phase
+## Not included yet
 
-Compare every confirmed card head-to-head and calculate front/back match-play bets, automatic presses, bets won, and per-man settlement.
+- Match-play running state
+- Automatic press logic
+- Bets won or money settlement
+
+Those will be added after the hole winners are tested and confirmed.

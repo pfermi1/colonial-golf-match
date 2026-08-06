@@ -24,6 +24,14 @@
         <button id="newRoundButton" class="secondary" type="button">Clear round</button>
       </div>
       <div id="savedCards" class="saved-cards"></div>
+      <div id="matchupsSection" class="matchups-section hidden">
+        <div class="section-heading">
+          <p class="eyebrow">Hole winner engine</p>
+          <h2>Card comparisons</h2>
+          <p>Available as soon as two cards are confirmed.</p>
+        </div>
+        <div id="matchups" class="matchups"></div>
+      </div>
       <button id="addCardButton" class="primary" type="button">Add scorecard</button>
     </section>
 
@@ -67,6 +75,18 @@
       <p id="confirmMessage" class="status" aria-live="polite"></p>
     </section>
 
+    <section id="comparisonPanel" class="card hidden">
+      <div class="review-head">
+        <div>
+          <p class="eyebrow">Hole winners</p>
+          <h2 id="comparisonTitle">Card comparison</h2>
+        </div>
+        <button id="backFromComparisonButton" class="secondary" type="button">Back</button>
+      </div>
+      <p class="help">This view only checks the winner of each hole. Match-play presses and bets come next.</p>
+      <div id="comparisonContent"></div>
+    </section>
+
     <section id="ballCardPanel" class="card hidden">
       <div class="review-head">
         <div>
@@ -77,6 +97,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
+    <footer class="version-footer">Version 0.5 · Hole Winner Engine</footer>
   </main>
 
   <dialog id="photoDialog">

@@ -7,6 +7,7 @@ const roundPanel = document.querySelector('#roundPanel');
 const uploadPanel = document.querySelector('#uploadPanel');
 const reviewPanel = document.querySelector('#reviewPanel');
 const ballCardPanel = document.querySelector('#ballCardPanel');
+const comparisonPanel = document.querySelector('#comparisonPanel');
 const playersEl = document.querySelector('#players');
 const cardTitle = document.querySelector('#cardTitle');
 const startOverButton = document.querySelector('#startOverButton');
@@ -23,6 +24,11 @@ const newRoundButton = document.querySelector('#newRoundButton');
 const backToCardsButton = document.querySelector('#backToCardsButton');
 const ballCardTitle = document.querySelector('#ballCardTitle');
 const ballCardContent = document.querySelector('#ballCardContent');
+const matchupsSection = document.querySelector('#matchupsSection');
+const matchupsEl = document.querySelector('#matchups');
+const comparisonTitle = document.querySelector('#comparisonTitle');
+const comparisonContent = document.querySelector('#comparisonContent');
+const backFromComparisonButton = document.querySelector('#backFromComparisonButton');
 
 const STORAGE_KEY = 'colonialGolfMatchCardsV04';
 let imageDataUrl = '';
@@ -44,6 +50,7 @@ newRoundButton.addEventListener('click', () => {
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
+backFromComparisonButton.addEventListener('click', () => showPanel(roundPanel));
 
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
@@ -118,7 +125,7 @@ enlargeButton.addEventListener('click', () => {
 closeDialog.addEventListener('click', () => photoDialog.close());
 
 function showPanel(panel) {
-  [roundPanel, uploadPanel, reviewPanel, ballCardPanel].forEach(item => item.classList.add('hidden'));
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
   panel.classList.remove('hidden');
 }
 
@@ -245,6 +252,7 @@ function renderSavedCards() {
   savedCardsEl.innerHTML = '';
   if (!savedCards.length) {
     savedCardsEl.innerHTML = '<p class="empty-state">No confirmed cards yet.</p>';
+    renderMatchups();
     return;
   }
   savedCards.forEach(card => {
@@ -270,6 +278,97 @@ function renderSavedCards() {
     });
     savedCardsEl.appendChild(item);
   });
+  renderMatchups();
+}
+
+
+function renderMatchups() {
+  matchupsEl.innerHTML = '';
+  if (savedCards.length < 2) {
+    matchupsSection.classList.add('hidden');
+    return;
+  }
+
+  matchupsSection.classList.remove('hidden');
+  for (let i = 0; i < savedCards.length; i++) {
+    for (let j = i + 1; j < savedCards.length; j++) {
+      const cardA = savedCards[i];
+      const cardB = savedCards[j];
+      const item = document.createElement('article');
+      item.className = 'matchup-card';
+      item.innerHTML = `
+        <div>
+          <h3>Team ${escapeHtml(cardA.label)} vs Team ${escapeHtml(cardB.label)}</h3>
+          <p>${cardA.playerCount === 5 ? '1 Ball / 2+3 Ball' : '1 Ball / 2 Ball'}</p>
+        </div>
+        <button class="secondary view-comparison" type="button">View hole winners</button>`;
+      item.querySelector('.view-comparison').addEventListener('click', () => renderComparison(cardA, cardB));
+      matchupsEl.appendChild(item);
+    }
+  }
+}
+
+function renderComparison(cardA, cardB) {
+  if (cardA.playerCount !== cardB.playerCount) {
+    window.alert('These cards have different player counts and cannot be compared in the same game format.');
+    return;
+  }
+  const secondLabel = cardA.playerCount === 5 ? '2+3 Ball' : '2 Ball';
+  comparisonTitle.textContent = `Team ${cardA.label} vs Team ${cardB.label}`;
+  comparisonContent.innerHTML = `
+    ${makeComparisonSection('1 Ball', cardA, cardB, cardA.ballScores.oneBall, cardB.ballScores.oneBall)}
+    ${makeComparisonSection(secondLabel, cardA, cardB, cardA.ballScores.secondGame, cardB.ballScores.secondGame)}
+  `;
+  showPanel(comparisonPanel);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function makeComparisonSection(label, cardA, cardB, scoresA, scoresB) {
+  return `<section class="comparison-section">
+    <h3>${label}</h3>
+    ${makeNineComparison('Front 9', 0, cardA, cardB, scoresA, scoresB)}
+    ${makeNineComparison('Back 9', 9, cardA, cardB, scoresA, scoresB)}
+  </section>`;
+}
+
+function makeNineComparison(nineLabel, start, cardA, cardB, scoresA, scoresB) {
+  const rows = [];
+  let winsA = 0;
+  let winsB = 0;
+  let ties = 0;
+  for (let i = start; i < start + 9; i++) {
+    const a = Number(scoresA[i]);
+    const b = Number(scoresB[i]);
+    let winner = 'Jacked';
+    let winnerClass = 'tie';
+    if (a < b) {
+      winner = `Team ${cardA.label}`;
+      winnerClass = 'winner-a';
+      winsA += 1;
+    } else if (b < a) {
+      winner = `Team ${cardB.label}`;
+      winnerClass = 'winner-b';
+      winsB += 1;
+    } else {
+      ties += 1;
+    }
+    rows.push(`<tr>
+      <td>${i + 1}</td>
+      <td>${a}</td>
+      <td>${b}</td>
+      <td><span class="hole-result ${winnerClass}">${escapeHtml(winner)}</span></td>
+    </tr>`);
+  }
+  return `<div class="nine-comparison">
+    <h4>${nineLabel}</h4>
+    <div class="comparison-table-wrap">
+      <table class="comparison-table">
+        <thead><tr><th>Hole</th><th>Team ${escapeHtml(cardA.label)}</th><th>Team ${escapeHtml(cardB.label)}</th><th>Hole winner</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>
+    <p class="hole-counts">Hole check: Team ${escapeHtml(cardA.label)} ${winsA} · Team ${escapeHtml(cardB.label)} ${winsB} · Jacked ${ties}</p>
+  </div>`;
 }
 
 function renderBallCard(card) {
