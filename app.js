@@ -3,8 +3,10 @@ const preview = document.querySelector('#preview');
 const readButton = document.querySelector('#readButton');
 const status = document.querySelector('#status');
 const playerCount = document.querySelector('#playerCount');
+const roundPanel = document.querySelector('#roundPanel');
 const uploadPanel = document.querySelector('#uploadPanel');
 const reviewPanel = document.querySelector('#reviewPanel');
+const ballCardPanel = document.querySelector('#ballCardPanel');
 const playersEl = document.querySelector('#players');
 const cardTitle = document.querySelector('#cardTitle');
 const startOverButton = document.querySelector('#startOverButton');
@@ -14,9 +16,34 @@ const photoDialog = document.querySelector('#photoDialog');
 const dialogImage = document.querySelector('#dialogImage');
 const enlargeButton = document.querySelector('#enlargeButton');
 const closeDialog = document.querySelector('#closeDialog');
+const savedCardsEl = document.querySelector('#savedCards');
+const addCardButton = document.querySelector('#addCardButton');
+const cancelUploadButton = document.querySelector('#cancelUploadButton');
+const newRoundButton = document.querySelector('#newRoundButton');
+const backToCardsButton = document.querySelector('#backToCardsButton');
+const ballCardTitle = document.querySelector('#ballCardTitle');
+const ballCardContent = document.querySelector('#ballCardContent');
 
+const STORAGE_KEY = 'colonialGolfMatchCardsV04';
 let imageDataUrl = '';
 let currentData = null;
+let savedCards = loadCards();
+
+renderSavedCards();
+
+addCardButton.addEventListener('click', () => showPanel(uploadPanel));
+cancelUploadButton.addEventListener('click', () => {
+  resetUpload();
+  showPanel(roundPanel);
+});
+newRoundButton.addEventListener('click', () => {
+  if (!savedCards.length || window.confirm('Clear all confirmed cards for this round?')) {
+    savedCards = [];
+    saveCards();
+    renderSavedCards();
+  }
+});
+backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
 
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
@@ -47,8 +74,7 @@ readButton.addEventListener('click', async () => {
     if (!response.ok) throw new Error(payload.error || 'Scorecard reader failed.');
     currentData = normalizeData(payload);
     renderReview(currentData);
-    uploadPanel.classList.add('hidden');
-    reviewPanel.classList.remove('hidden');
+    showPanel(reviewPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -56,11 +82,33 @@ readButton.addEventListener('click', async () => {
   }
 });
 
-startOverButton.addEventListener('click', resetApp);
+startOverButton.addEventListener('click', () => {
+  resetUpload();
+  showPanel(uploadPanel);
+});
+
 confirmButton.addEventListener('click', () => {
-  currentData = collectReviewData();
-  const firstName = currentData.players[0]?.name?.trim() || 'Unnamed';
-  confirmMessage.textContent = `Confirmed: Team ${firstName}. Scores are ready for game selection.`;
+  const data = collectReviewData();
+  const incomplete = data.players.some(player => !player.name || player.scores.some(score => score === ''));
+  if (incomplete) {
+    confirmMessage.textContent = 'Please complete every player name and all 18 scores before confirming.';
+    return;
+  }
+  const label = data.players[0].name.trim() || 'Unnamed';
+  const card = {
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    label,
+    playerCount: data.players.length,
+    players: data.players,
+    ballScores: calculateBallScores(data.players),
+    confirmedAt: new Date().toISOString()
+  };
+  savedCards.push(card);
+  saveCards();
+  currentData = null;
+  resetUpload();
+  renderSavedCards();
+  showPanel(roundPanel);
 });
 
 enlargeButton.addEventListener('click', () => {
@@ -68,6 +116,11 @@ enlargeButton.addEventListener('click', () => {
   photoDialog.showModal();
 });
 closeDialog.addEventListener('click', () => photoDialog.close());
+
+function showPanel(panel) {
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel].forEach(item => item.classList.add('hidden'));
+  panel.classList.remove('hidden');
+}
 
 function normalizeData(data) {
   const expected = Number(playerCount.value);
@@ -93,6 +146,7 @@ function validScore(value) {
 function renderReview(data) {
   const firstName = data.players[0]?.name?.trim() || 'Unnamed';
   cardTitle.textContent = `Team ${firstName}`;
+  confirmMessage.textContent = '';
   playersEl.innerHTML = '';
   data.players.forEach((player, playerIndex) => {
     const section = document.createElement('section');
@@ -135,12 +189,9 @@ function makeScoreRow(player, playerIndex, start) {
     input.setAttribute('aria-label', `Player ${playerIndex + 1}, hole ${i + 1}`);
     if (player.uncertainHoles.includes(i + 1)) input.classList.add('uncertain');
 
-    const selectCurrentScore = () => {
-      requestAnimationFrame(() => input.select());
-    };
+    const selectCurrentScore = () => requestAnimationFrame(() => input.select());
     input.addEventListener('focus', selectCurrentScore);
     input.addEventListener('click', selectCurrentScore);
-
     input.addEventListener('input', () => {
       const digits = input.value.replace(/[^0-9]/g, '');
       const candidate = digits ? digits.at(-1) : '';
@@ -148,13 +199,11 @@ function makeScoreRow(player, playerIndex, start) {
       if (input.value !== '1') input.classList.remove('uncertain');
       updateTotals(playerIndex);
     });
-
     input.addEventListener('change', () => {
       if (input.value === '1') {
         const confirmed = window.confirm('Confirm hole-in-one score of 1?');
-        if (confirmed) {
-          input.classList.remove('uncertain');
-        } else {
+        if (confirmed) input.classList.remove('uncertain');
+        else {
           input.value = '';
           input.classList.add('uncertain');
           input.focus();
@@ -173,12 +222,81 @@ function makeScoreRow(player, playerIndex, start) {
 }
 
 function collectReviewData() {
-  const players = [...document.querySelectorAll('.player')].map((section, pIndex) => {
+  const players = [...document.querySelectorAll('.player')].map(section => {
     const name = section.querySelector('.player-name').value.trim();
     const scores = [...section.querySelectorAll('.score-input')].map(input => validScore(input.value));
     return { name, scores, uncertainHoles: [] };
   });
   return { players };
+}
+
+function calculateBallScores(players) {
+  const oneBall = [];
+  const secondGame = [];
+  for (let hole = 0; hole < 18; hole++) {
+    const sorted = players.map(player => Number(player.scores[hole])).sort((a, b) => a - b);
+    oneBall.push(sorted[0]);
+    secondGame.push(players.length === 5 ? sorted[1] + sorted[2] : sorted[1]);
+  }
+  return { oneBall, secondGame };
+}
+
+function renderSavedCards() {
+  savedCardsEl.innerHTML = '';
+  if (!savedCards.length) {
+    savedCardsEl.innerHTML = '<p class="empty-state">No confirmed cards yet.</p>';
+    return;
+  }
+  savedCards.forEach(card => {
+    const item = document.createElement('article');
+    item.className = 'saved-card';
+    const format = card.playerCount === 5 ? '1 Ball / 2+3 Ball' : '1 Ball / 2 Ball';
+    item.innerHTML = `
+      <div>
+        <h3>Team ${escapeHtml(card.label)}</h3>
+        <p>${card.playerCount} players · ${format}</p>
+      </div>
+      <div class="saved-card-actions">
+        <button class="secondary view-card" type="button">View calculated card</button>
+        <button class="danger remove-card" type="button" aria-label="Remove Team ${escapeHtml(card.label)}">Remove</button>
+      </div>`;
+    item.querySelector('.view-card').addEventListener('click', () => renderBallCard(card));
+    item.querySelector('.remove-card').addEventListener('click', () => {
+      if (window.confirm(`Remove Team ${card.label} from this round?`)) {
+        savedCards = savedCards.filter(saved => saved.id !== card.id);
+        saveCards();
+        renderSavedCards();
+      }
+    });
+    savedCardsEl.appendChild(item);
+  });
+}
+
+function renderBallCard(card) {
+  const secondLabel = card.playerCount === 5 ? '2+3 Ball' : '2 Ball';
+  ballCardTitle.textContent = `Team ${card.label}`;
+  ballCardContent.innerHTML = `
+    ${makeBallSection('1 Ball', card.ballScores.oneBall)}
+    ${makeBallSection(secondLabel, card.ballScores.secondGame)}
+    <div class="player-summary">
+      ${card.players.map(player => {
+        const front = sumScores(player.scores.slice(0, 9));
+        const back = sumScores(player.scores.slice(9, 18));
+        return `<div><strong>${escapeHtml(player.name)}</strong><span>${front} · ${back} · ${front + back}</span></div>`;
+      }).join('')}
+    </div>`;
+  showPanel(ballCardPanel);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function makeBallSection(label, scores) {
+  const front = scores.slice(0, 9).reduce((sum, score) => sum + score, 0);
+  const back = scores.slice(9, 18).reduce((sum, score) => sum + score, 0);
+  return `<section class="ball-section">
+    <h3>${label}</h3>
+    <div class="ball-row">${scores.slice(0, 9).map(score => `<span>${score}</span>`).join('')}<strong>${front}</strong></div>
+    <div class="ball-row">${scores.slice(9, 18).map(score => `<span>${score}</span>`).join('')}<strong>${back}</strong></div>
+  </section>`;
 }
 
 function updateTotals(playerIndex) {
@@ -194,7 +312,7 @@ function sumScores(scores) {
   return scores.reduce((sum, score) => sum + Number(score), 0);
 }
 
-function resetApp() {
+function resetUpload() {
   currentData = null;
   imageDataUrl = '';
   fileInput.value = '';
@@ -204,8 +322,23 @@ function resetApp() {
   status.textContent = '';
   confirmMessage.textContent = '';
   playersEl.innerHTML = '';
-  reviewPanel.classList.add('hidden');
-  uploadPanel.classList.remove('hidden');
+}
+
+function loadCards() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCards() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(savedCards));
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
 
 function resizeImage(file, maxWidth, quality) {

@@ -11,16 +11,28 @@
   <main class="shell">
     <header class="hero">
       <p class="eyebrow">Colonial Golf Match</p>
-      <h1>Read a scorecard</h1>
-      <p>Upload a clear photo. The first player listed becomes the card label.</p>
+      <h1>Read and build cards</h1>
+      <p>Upload each scorecard, review the scores, then build the 1 Ball / 2 Ball card automatically.</p>
     </header>
 
-    <section class="card" id="uploadPanel">
+    <section id="roundPanel" class="card">
+      <div class="review-head">
+        <div>
+          <p class="eyebrow">Today's round</p>
+          <h2>Confirmed cards</h2>
+        </div>
+        <button id="newRoundButton" class="secondary" type="button">Clear round</button>
+      </div>
+      <div id="savedCards" class="saved-cards"></div>
+      <button id="addCardButton" class="primary" type="button">Add scorecard</button>
+    </section>
+
+    <section class="card hidden" id="uploadPanel">
       <label class="field">
         <span>Players on this card</span>
         <select id="playerCount">
-          <option value="4">4 players</option>
-          <option value="5">5 players</option>
+          <option value="4">4 players — 1 Ball / 2 Ball</option>
+          <option value="5">5 players — 1 Ball / 2+3 Ball</option>
         </select>
       </label>
 
@@ -31,7 +43,10 @@
       <input id="scorecardFile" type="file" accept="image/*" capture="environment">
 
       <img id="preview" class="preview hidden" alt="Uploaded scorecard preview">
-      <button id="readButton" class="primary" type="button" disabled>Read Scorecard</button>
+      <div class="actions">
+        <button id="cancelUploadButton" class="secondary" type="button">Cancel</button>
+        <button id="readButton" class="primary" type="button" disabled>Read Scorecard</button>
+      </div>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
 
@@ -43,13 +58,24 @@
         </div>
         <button id="enlargeButton" class="secondary" type="button">View photo</button>
       </div>
-      <p class="help">Tap any name or score to correct it. Yellow boxes were marked uncertain. Tap a score and type one digit to replace it. Individual scores must be 1–7; a 1 requires confirmation.</p>
+      <p class="help">Tap a score and type one digit to replace it. Yellow boxes need attention. Individual scores must be 1–7; a 1 requires confirmation.</p>
       <div id="players"></div>
       <div class="actions">
         <button id="startOverButton" class="secondary" type="button">Start over</button>
         <button id="confirmButton" class="primary" type="button">Confirm card</button>
       </div>
       <p id="confirmMessage" class="status" aria-live="polite"></p>
+    </section>
+
+    <section id="ballCardPanel" class="card hidden">
+      <div class="review-head">
+        <div>
+          <p class="eyebrow">Calculated card</p>
+          <h2 id="ballCardTitle">Team</h2>
+        </div>
+        <button id="backToCardsButton" class="secondary" type="button">Back</button>
+      </div>
+      <div id="ballCardContent"></div>
     </section>
   </main>
 

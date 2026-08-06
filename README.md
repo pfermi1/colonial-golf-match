@@ -1,35 +1,22 @@
-# Colonial Golf Match v0.2
+# Colonial Golf Match v0.4 — Phase 2
 
-This first working milestone reads a photographed handwritten scorecard and places each player's 18 scores into an editable review screen.
+This version adds the score engine and multiple-card round workflow.
 
-## Card naming
+## Included
 
-There is no permanent team name. The first player listed on the scorecard becomes the card label for that round, displayed as `Team <first player>`.
+- AI scorecard reading through a Netlify Function
+- 4-player and 5-player cards
+- Fast one-digit score correction
+- Individual score validation from 1–7
+- Hole-in-one confirmation for a score of 1
+- First player automatically names the card as Team [Name]
+- Save multiple confirmed cards in the browser
+- Automatic player front, back, and total
+- Automatic 1 Ball scores for every hole
+- Automatic 2 Ball scores for 4-player cards
+- Automatic 2+3 Ball totals for 5-player cards
+- View and remove confirmed cards
 
-## Current features
+## Next phase
 
-- Four-player or five-player scorecard
-- Photo resizing before upload
-- Netlify Function keeps the OpenAI API key private
-- Reads names and 18 handwritten scores
-- Flags uncertain holes in yellow
-- Editable review screen
-- Automatic first nine, second nine, and total
-
-## Netlify setup
-
-Add an environment variable named `OPENAI_API_KEY` and make sure its scope includes Functions. After changing an environment variable, trigger a new deployment.
-
-Optional: set `OPENAI_VISION_MODEL`. If omitted, the function uses `gpt-4.1-mini`.
-
-## Deploy
-
-Upload the contents of this folder to the root of the GitHub repository. Do not upload the ZIP itself. Netlify will deploy automatically after the GitHub commit.
-
-
-## v0.3 review improvements
-
-- Tapping a score selects the whole value so one digit replaces it immediately.
-- Individual player scores are restricted to 1 through 7.
-- OCR values outside 1 through 7 are rejected.
-- Every score of 1 is flagged and requires hole-in-one confirmation.
+Compare every confirmed card head-to-head and calculate front/back match-play bets, automatic presses, bets won, and per-man settlement.
