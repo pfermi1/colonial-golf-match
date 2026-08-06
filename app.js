@@ -333,42 +333,156 @@ function makeComparisonSection(label, cardA, cardB, scoresA, scoresB) {
 
 function makeNineComparison(nineLabel, start, cardA, cardB, scoresA, scoresB) {
   const rows = [];
-  let winsA = 0;
-  let winsB = 0;
-  let ties = 0;
+  const holeResults = [];
+
   for (let i = start; i < start + 9; i++) {
     const a = Number(scoresA[i]);
     const b = Number(scoresB[i]);
-    let winner = 'Jacked';
+    let winner = 'Tie';
     let winnerClass = 'tie';
+    let delta = 0;
+
     if (a < b) {
       winner = `Team ${cardA.label}`;
       winnerClass = 'winner-a';
-      winsA += 1;
+      delta = 1;
     } else if (b < a) {
       winner = `Team ${cardB.label}`;
       winnerClass = 'winner-b';
-      winsB += 1;
-    } else {
-      ties += 1;
+      delta = -1;
     }
+
+    holeResults.push(delta);
+  }
+
+  const result = calculateNineMatch(holeResults, cardA.label, cardB.label);
+
+  for (let offset = 0; offset < 9; offset++) {
+    const i = start + offset;
+    const a = Number(scoresA[i]);
+    const b = Number(scoresB[i]);
+    let winner = 'Tie';
+    let winnerClass = 'tie';
+
+    if (a < b) {
+      winner = `Team ${cardA.label}`;
+      winnerClass = 'winner-a';
+    } else if (b < a) {
+      winner = `Team ${cardB.label}`;
+      winnerClass = 'winner-b';
+    }
+
+    const state = result.states[offset];
     rows.push(`<tr>
       <td>${i + 1}</td>
       <td>${a}</td>
       <td>${b}</td>
       <td><span class="hole-result ${winnerClass}">${escapeHtml(winner)}</span></td>
+      <td><strong>${escapeHtml(state.display)}</strong>${state.pressJustStarted ? '<span class="press-badge">Press</span>' : ''}</td>
     </tr>`);
   }
+
+  const pressText = result.pressStarted
+    ? `One automatic press started after hole ${start + result.pressAfterHole}.`
+    : 'No automatic press.';
+
   return `<div class="nine-comparison">
     <h4>${nineLabel}</h4>
     <div class="comparison-table-wrap">
       <table class="comparison-table">
-        <thead><tr><th>Hole</th><th>Team ${escapeHtml(cardA.label)}</th><th>Team ${escapeHtml(cardB.label)}</th><th>Hole winner</th></tr></thead>
+        <thead><tr><th>Hole</th><th>Team ${escapeHtml(cardA.label)}</th><th>Team ${escapeHtml(cardB.label)}</th><th>Hole</th><th>Running bet</th></tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>
-    <p class="hole-counts">Hole check: Team ${escapeHtml(cardA.label)} ${winsA} · Team ${escapeHtml(cardB.label)} ${winsB} · Jacked ${ties}</p>
+    <div class="nine-result ${result.cssClass}">
+      <strong>${escapeHtml(result.summary)}</strong>
+      <span>${escapeHtml(pressText)}</span>
+    </div>
   </div>`;
+}
+
+function calculateNineMatch(holeResults, labelA, labelB) {
+  let prePressLead = 0;
+  let pressStarted = false;
+  let pressAfterHole = null;
+  let pressStateIndex = 4; // 4 = 1-1, 5 = 2-0, 3 = 0-2
+  let pressLeader = 0;
+  let freshPress = false;
+  const states = [];
+
+  holeResults.forEach((delta, index) => {
+    let pressJustStarted = false;
+
+    if (!pressStarted) {
+      prePressLead += delta;
+
+      if (Math.abs(prePressLead) >= 2) {
+        pressStarted = true;
+        pressAfterHole = index + 1;
+        pressLeader = Math.sign(prePressLead);
+        pressStateIndex = pressLeader > 0 ? 5 : 3;
+        freshPress = true;
+        pressJustStarted = true;
+      }
+    } else if (delta !== 0) {
+      // The first hole won by the trailing team immediately after a press begins
+      // leaves the call at 2-0 (or 0-2). After that, every won hole moves one
+      // step through the Colonial call sequence:
+      // 3-1 -> 2-0 -> 1-1 -> 0-2 -> 1-3, and the mirror image.
+      if (freshPress && delta === -pressLeader) {
+        freshPress = false;
+      } else {
+        pressStateIndex += delta;
+        freshPress = false;
+      }
+    }
+
+    states.push({
+      display: pressStarted ? formatPressState(pressStateIndex) : formatSimpleLead(prePressLead),
+      pressJustStarted
+    });
+  });
+
+  const finalDisplay = states.at(-1)?.display || '0-0';
+  const outcome = resultFromDisplay(finalDisplay, labelA, labelB);
+
+  return {
+    summary: outcome.summary,
+    cssClass: outcome.cssClass,
+    pressStarted,
+    pressAfterHole,
+    states
+  };
+}
+
+function formatSimpleLead(lead) {
+  if (lead > 0) return `${lead}-0`;
+  if (lead < 0) return `0-${Math.abs(lead)}`;
+  return '0-0';
+}
+
+function formatPressState(index) {
+  const distance = index - 4;
+  if (distance === 0) return '1-1';
+  if (distance > 0) return `${distance + 1}-${distance - 1}`;
+  const magnitude = Math.abs(distance);
+  return `${magnitude - 1}-${magnitude + 1}`;
+}
+
+function resultFromDisplay(display, labelA, labelB) {
+  const [a, b] = display.split('-').map(Number);
+
+  if (a === b) {
+    return { summary: 'Jacked', cssClass: 'jacked' };
+  }
+
+  if (a > b) {
+    const bets = a >= 3 ? 2 : 1;
+    return { summary: `Team ${labelA} (${bets})`, cssClass: 'winner-a' };
+  }
+
+  const bets = b >= 3 ? 2 : 1;
+  return { summary: `Team ${labelB} (${bets})`, cssClass: 'winner-b' };
 }
 
 function renderBallCard(card) {

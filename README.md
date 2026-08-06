@@ -1,4 +1,4 @@
-# Colonial Golf Match v0.5
+# Colonial Golf Match v0.6
 
 Phase 2 adds the first **hole winner engine**.
 
@@ -23,3 +23,17 @@ Phase 2 adds the first **hole winner engine**.
 - Bets won or money settlement
 
 Those will be added after the hole winners are tested and confirmed.
+
+
+## v0.6 changes
+- Tied holes are labeled Tie, not Jacked.
+- Each front/back nine is scored as match play.
+- One automatic press starts after a side first reaches 2 up.
+- Final nine result displays Team Name (1), Team Name (2), or Jacked.
+
+
+## Version 0.7
+- Adds a running match state after every hole.
+- Tied holes leave the running state unchanged.
+- Adds the Colonial automatic-press call sequence (2-0, 3-1, 2-0, 1-1, 0-2).
+- Keeps one press maximum per ball per nine.
