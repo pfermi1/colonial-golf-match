@@ -77,14 +77,17 @@ function normalizeData(data) {
     players: players.map(p => ({
       name: typeof p.name === 'string' ? p.name : '',
       scores: Array.from({ length: 18 }, (_, i) => validScore(p.scores?.[i])),
-      uncertainHoles: Array.isArray(p.uncertainHoles) ? p.uncertainHoles : []
+      uncertainHoles: [...new Set([
+        ...(Array.isArray(p.uncertainHoles) ? p.uncertainHoles : []),
+        ...Array.from({ length: 18 }, (_, i) => Number(p.scores?.[i]) === 1 ? i + 1 : null).filter(Boolean)
+      ])]
     }))
   };
 }
 
 function validScore(value) {
   const n = Number(value);
-  return Number.isInteger(n) && n >= 1 && n <= 15 ? n : '';
+  return Number.isInteger(n) && n >= 1 && n <= 7 ? n : '';
 }
 
 function renderReview(data) {
@@ -120,19 +123,44 @@ function makeScoreRow(player, playerIndex, start) {
   row.className = 'score-row';
   for (let i = start; i < start + 9; i++) {
     const input = document.createElement('input');
-    input.type = 'number';
+    input.type = 'text';
     input.inputMode = 'numeric';
-    input.min = '1';
-    input.max = '15';
+    input.pattern = '[1-7]';
+    input.maxLength = 1;
+    input.autocomplete = 'off';
     input.value = player.scores[i];
     input.className = 'score-input';
     input.dataset.player = playerIndex;
     input.dataset.hole = i;
     input.setAttribute('aria-label', `Player ${playerIndex + 1}, hole ${i + 1}`);
     if (player.uncertainHoles.includes(i + 1)) input.classList.add('uncertain');
+
+    const selectCurrentScore = () => {
+      requestAnimationFrame(() => input.select());
+    };
+    input.addEventListener('focus', selectCurrentScore);
+    input.addEventListener('click', selectCurrentScore);
+
     input.addEventListener('input', () => {
-      input.classList.remove('uncertain');
+      const digits = input.value.replace(/[^0-9]/g, '');
+      const candidate = digits ? digits.at(-1) : '';
+      input.value = /^[1-7]$/.test(candidate) ? candidate : '';
+      if (input.value !== '1') input.classList.remove('uncertain');
       updateTotals(playerIndex);
+    });
+
+    input.addEventListener('change', () => {
+      if (input.value === '1') {
+        const confirmed = window.confirm('Confirm hole-in-one score of 1?');
+        if (confirmed) {
+          input.classList.remove('uncertain');
+        } else {
+          input.value = '';
+          input.classList.add('uncertain');
+          input.focus();
+        }
+        updateTotals(playerIndex);
+      }
     });
     row.appendChild(input);
   }

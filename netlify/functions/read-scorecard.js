@@ -23,7 +23,9 @@ Return ONLY valid JSON in this exact shape:
 Rules:
 - players must contain exactly ${playerCount} entries.
 - scores must contain exactly 18 integers per player.
-- Valid golf scores are 1 through 15.
+- Individual player scores must be one digit from 1 through 7 because this group uses double-bogey maximum.
+- Never return 8, 9, 10, or any larger value for an individual player.
+- A score of 1 is possible but extremely rare. Always include every hole read as 1 in uncertainHoles so the user must confirm it.
 - uncertainHoles uses 1-based hole numbers and must list every score you are not highly confident about.
 - If a name is uncertain, use your best reading; do not add commentary.
 - Never calculate or copy OUT, IN, or TOTAL columns into the 18 scores.
@@ -94,13 +96,18 @@ function validate(data, expectedPlayers) {
     }
     player.scores = player.scores.map(value => {
       const score = Number(value);
-      if (!Number.isInteger(score) || score < 1 || score > 15) throw new Error(`An invalid score was found for player ${index + 1}.`);
+      if (!Number.isInteger(score) || score < 1 || score > 7) throw new Error(`An invalid score was found for player ${index + 1}.`);
       return score;
     });
     player.name = String(player.name || '').trim();
     player.uncertainHoles = Array.isArray(player.uncertainHoles)
       ? player.uncertainHoles.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 18)
       : [];
+    player.scores.forEach((score, holeIndex) => {
+      if (score === 1 && !player.uncertainHoles.includes(holeIndex + 1)) {
+        player.uncertainHoles.push(holeIndex + 1);
+      }
+    });
   });
 }
 

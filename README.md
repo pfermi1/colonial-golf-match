@@ -25,3 +25,11 @@ Optional: set `OPENAI_VISION_MODEL`. If omitted, the function uses `gpt-4.1-mini
 ## Deploy
 
 Upload the contents of this folder to the root of the GitHub repository. Do not upload the ZIP itself. Netlify will deploy automatically after the GitHub commit.
+
+
+## v0.3 review improvements
+
+- Tapping a score selects the whole value so one digit replaces it immediately.
+- Individual player scores are restricted to 1 through 7.
+- OCR values outside 1 through 7 are rejected.
+- Every score of 1 is flagged and requires hole-in-one confirmation.
