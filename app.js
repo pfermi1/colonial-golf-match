@@ -22,6 +22,7 @@ const addCardButton = document.querySelector('#addCardButton');
 const cancelUploadButton = document.querySelector('#cancelUploadButton');
 const newRoundButton = document.querySelector('#newRoundButton');
 const backToCardsButton = document.querySelector('#backToCardsButton');
+const reviewOriginalButton = document.querySelector('#reviewOriginalButton');
 const ballCardTitle = document.querySelector('#ballCardTitle');
 const ballCardContent = document.querySelector('#ballCardContent');
 const matchupsSection = document.querySelector('#matchupsSection');
@@ -29,10 +30,15 @@ const matchupsEl = document.querySelector('#matchups');
 const comparisonTitle = document.querySelector('#comparisonTitle');
 const comparisonContent = document.querySelector('#comparisonContent');
 const backFromComparisonButton = document.querySelector('#backFromComparisonButton');
+const holeDialog = document.querySelector('#holeDialog');
+const holeDialogContent = document.querySelector('#holeDialogContent');
+const closeHoleDialog = document.querySelector('#closeHoleDialog');
 
 const STORAGE_KEY = 'colonialGolfMatchCardsV04';
 let imageDataUrl = '';
 let currentData = null;
+let editingCardId = null;
+let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
@@ -50,6 +56,10 @@ newRoundButton.addEventListener('click', () => {
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
+reviewOriginalButton.addEventListener('click', () => {
+  const card = savedCards.find(item => item.id === activeBallCardId);
+  if (card) openCardForReview(card);
+});
 backFromComparisonButton.addEventListener('click', () => showPanel(roundPanel));
 
 fileInput.addEventListener('change', async () => {
@@ -70,7 +80,7 @@ fileInput.addEventListener('change', async () => {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading handwritten names and scores...';
+  status.textContent = 'Reading and verifying each score by hole column...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -102,12 +112,38 @@ confirmButton.addEventListener('click', () => {
     return;
   }
   const label = data.players[0].name.trim() || 'Unnamed';
+
+  if (editingCardId) {
+    const index = savedCards.findIndex(card => card.id === editingCardId);
+    if (index >= 0) {
+      savedCards[index] = {
+        ...savedCards[index],
+        label,
+        playerCount: data.players.length,
+        players: data.players,
+        ballScores: calculateBallScores(data.players),
+        photoDataUrl: imageDataUrl || savedCards[index].photoDataUrl || '',
+        correctedAt: new Date().toISOString()
+      };
+      const updated = savedCards[index];
+      saveCards();
+      editingCardId = null;
+      currentData = null;
+      confirmButton.textContent = 'Confirm card';
+      resetUpload({ keepEditing: true });
+      renderSavedCards();
+      renderBallCard(updated);
+      return;
+    }
+  }
+
   const card = {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
     label,
     playerCount: data.players.length,
     players: data.players,
     ballScores: calculateBallScores(data.players),
+    photoDataUrl: imageDataUrl,
     confirmedAt: new Date().toISOString()
   };
   savedCards.push(card);
@@ -119,10 +155,12 @@ confirmButton.addEventListener('click', () => {
 });
 
 enlargeButton.addEventListener('click', () => {
+  if (!imageDataUrl) return;
   dialogImage.src = imageDataUrl;
   photoDialog.showModal();
 });
 closeDialog.addEventListener('click', () => photoDialog.close());
+closeHoleDialog.addEventListener('click', () => holeDialog.close());
 
 function showPanel(panel) {
   [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
@@ -495,11 +533,13 @@ function makeAllDaySummary(nameA, nameB, net) {
 }
 
 function renderBallCard(card) {
+  activeBallCardId = card.id;
   const secondLabel = card.playerCount === 5 ? '2+3 Ball' : '2 Ball';
   ballCardTitle.textContent = `Team ${teamName(card.label)}`;
   ballCardContent.innerHTML = `
-    ${makeBallSection('1 Ball', card.ballScores.oneBall)}
-    ${makeBallSection(secondLabel, card.ballScores.secondGame)}
+    <p class="help compact-help">Tap any calculated hole to see the player scores used. Use “Review original scores” to make a correction; the calculated card updates automatically.</p>
+    ${makeBallSection('1 Ball', card.ballScores.oneBall, 'oneBall')}
+    ${makeBallSection(secondLabel, card.ballScores.secondGame, 'secondGame')}
     <div class="player-summary">
       ${card.players.map(player => {
         const front = sumScores(player.scores.slice(0, 9));
@@ -507,19 +547,77 @@ function renderBallCard(card) {
         return `<div><strong>${escapeHtml(player.name)}</strong><span>${front} · ${back} · ${front + back}</span></div>`;
       }).join('')}
     </div>`;
+  ballCardContent.querySelectorAll('.ball-score-button').forEach(button => {
+    button.addEventListener('click', () => showHoleAudit(card, Number(button.dataset.hole), button.dataset.game));
+  });
   showPanel(ballCardPanel);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function makeBallSection(label, scores) {
+function makeBallSection(label, scores, gameKey) {
   const front = scores.slice(0, 9).reduce((sum, score) => sum + score, 0);
   const back = scores.slice(9, 18).reduce((sum, score) => sum + score, 0);
+  const makeButtons = (subset, start) => subset.map((score, offset) => `<button class="ball-score-button" type="button" data-hole="${start + offset}" data-game="${gameKey}" aria-label="Review hole ${start + offset + 1}">${score}</button>`).join('');
   return `<section class="ball-section">
     <h3>${label}</h3>
-    <div class="ball-row">${scores.slice(0, 9).map(score => `<span>${score}</span>`).join('')}<strong>${front}</strong></div>
-    <div class="ball-row">${scores.slice(9, 18).map(score => `<span>${score}</span>`).join('')}<strong>${back}</strong></div>
+    <div class="ball-row">${makeButtons(scores.slice(0, 9), 0)}<strong>${front}</strong></div>
+    <div class="ball-row">${makeButtons(scores.slice(9, 18), 9)}<strong>${back}</strong></div>
   </section>`;
 }
+
+function showHoleAudit(card, holeIndex, gameKey) {
+  const sorted = card.players
+    .map(player => ({ name: player.name, score: Number(player.scores[holeIndex]) }))
+    .sort((a, b) => a.score - b.score);
+  const isFive = card.playerCount === 5;
+  const gameLabel = gameKey === 'oneBall' ? '1 Ball' : (isFive ? '2+3 Ball' : '2 Ball');
+  const calculation = gameKey === 'oneBall'
+    ? `${sorted[0].score}`
+    : isFive
+      ? `${sorted[1].score} + ${sorted[2].score} = ${sorted[1].score + sorted[2].score}`
+      : `${sorted[1].score}`;
+
+  holeDialogContent.innerHTML = `
+    <p class="eyebrow">Team ${escapeHtml(teamName(card.label))}</p>
+    <h2>Hole ${holeIndex + 1} · ${gameLabel}</h2>
+    <div class="hole-audit-list">
+      ${card.players.map(player => `<div><span>${escapeHtml(player.name)}</span><strong>${player.scores[holeIndex]}</strong></div>`).join('')}
+    </div>
+    <div class="audit-result"><span>Calculated ${gameLabel}</span><strong>${calculation}</strong></div>
+    <button id="auditEditButton" class="primary audit-edit" type="button">Review original scores</button>`;
+  holeDialog.showModal();
+  holeDialogContent.querySelector('#auditEditButton').addEventListener('click', () => {
+    holeDialog.close();
+    openCardForReview(card, holeIndex);
+  });
+}
+
+function openCardForReview(card, focusHole = null) {
+  editingCardId = card.id;
+  activeBallCardId = card.id;
+  imageDataUrl = card.photoDataUrl || '';
+  currentData = {
+    players: card.players.map(player => ({
+      name: player.name,
+      scores: [...player.scores],
+      uncertainHoles: []
+    }))
+  };
+  playerCount.value = String(card.playerCount);
+  renderReview(currentData);
+  confirmButton.textContent = 'Save corrections';
+  enlargeButton.disabled = !imageDataUrl;
+  enlargeButton.textContent = imageDataUrl ? 'View photo' : 'Photo unavailable';
+  showPanel(reviewPanel);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (focusHole !== null) {
+    requestAnimationFrame(() => {
+      const target = document.querySelector(`.score-input[data-hole="${focusHole}"]`);
+      if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); }
+    });
+  }
+}
+
 
 function updateTotals(playerIndex) {
   const section = playersEl.children[playerIndex];
@@ -534,9 +632,10 @@ function sumScores(scores) {
   return scores.reduce((sum, score) => sum + Number(score), 0);
 }
 
-function resetUpload() {
+function resetUpload(options = {}) {
   currentData = null;
   imageDataUrl = '';
+  if (!options.keepEditing) editingCardId = null;
   fileInput.value = '';
   preview.src = '';
   preview.classList.add('hidden');
@@ -544,6 +643,9 @@ function resetUpload() {
   status.textContent = '';
   confirmMessage.textContent = '';
   playersEl.innerHTML = '';
+  confirmButton.textContent = 'Confirm card';
+  enlargeButton.disabled = false;
+  enlargeButton.textContent = 'View photo';
 }
 
 function loadCards() {
@@ -556,7 +658,13 @@ function loadCards() {
 }
 
 function saveCards() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(savedCards));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedCards));
+  } catch (error) {
+    // Scorecard photos can exceed browser storage. Preserve scores/results even if photos cannot persist.
+    const withoutPhotos = savedCards.map(card => ({ ...card, photoDataUrl: '' }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutPhotos));
+  }
 }
 
 function teamName(label) {

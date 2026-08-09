@@ -92,16 +92,21 @@
           <p class="eyebrow">Calculated card</p>
           <h2 id="ballCardTitle">Team</h2>
         </div>
-        <button id="backToCardsButton" class="secondary" type="button">Back</button>
+        <div class="header-actions"><button id="reviewOriginalButton" class="secondary" type="button">Review original scores</button><button id="backToCardsButton" class="secondary" type="button">Back</button></div>
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 0.8 · Phone Match View</footer>
+    <footer class="version-footer">Version 0.9 · OCR Alignment + Score Audit</footer>
   </main>
 
   <dialog id="photoDialog">
     <button id="closeDialog" class="secondary dialog-close" type="button">Close</button>
     <img id="dialogImage" alt="Full-size uploaded scorecard">
+  </dialog>
+
+  <dialog id="holeDialog" class="hole-dialog">
+    <button id="closeHoleDialog" class="secondary dialog-close" type="button">Close</button>
+    <div id="holeDialogContent"></div>
   </dialog>
 
   <script src="app.js" defer></script>

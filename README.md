@@ -32,16 +32,24 @@ Those will be added after the hole winners are tested and confirmed.
 - Final nine result displays Team Name (1), Team Name (2), or Jacked.
 
 
-## Version 0.8
+## Version 0.9
 - Adds a running match state after every hole.
 - Tied holes leave the running state unchanged.
 - Adds the Colonial automatic-press call sequence (2-0, 3-1, 2-0, 1-1, 0-2).
 - Keeps one press maximum per ball per nine.
 
 
-## v0.8 changes
+## v0.9 changes
 - Uses the first name on each confirmed scorecard as the visible team name.
 - Phone-first comparison table with the winning hole score highlighted.
 - Each front/back result shows Team, Bets, and the final Colonial call (for example 5-3).
 - Removes the extra automatic-press sentence below each nine.
 - Adds an All Day net-bet line, or “Jacked All Day!” when the matchup is even.
+
+
+## Version 0.9 changes
+- Two-pass AI scorecard reading with hole-column anchoring to reduce left/right score shifts.
+- Any disagreement between the two AI passes is highlighted for review.
+- Confirmed cards retain the original scorecard photo when browser storage allows.
+- Calculated 1 Ball / 2 Ball / 2+3 Ball scores are tappable to show the exact player scores used for that hole.
+- Review Original Scores lets you return to a confirmed card, correct any player score, and automatically recalculate the calculated card and matchups.
