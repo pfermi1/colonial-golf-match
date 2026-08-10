@@ -80,7 +80,7 @@ fileInput.addEventListener('change', async () => {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locking the score grid, then reading each hole cell separately...';
+  status.textContent = 'Aligning to the Colonial scorecard template, then reading each hole cell separately...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',

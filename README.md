@@ -1,15 +1,19 @@
-# Colonial Golf Match — v1.1
+# Colonial Golf Match — v1.2
 
-Version 1.1 is a robustness update for fixed-cell OCR. It addresses failures such as **“back nine for player 1 grid coordinates were invalid.”**
+Version 1.2 changes the OCR pipeline from free-form grid discovery to **template-guided alignment** using the Colonial scorecard image supplied during testing.
 
 ## What changed
 
-1. The server first tries to isolate the physical scorecard from the surrounding photo.
-2. The layout pass now finds only two shared horizontal score grids (front and back) plus one vertical row band per player. This is simpler and more stable than asking AI for a separate front/back rectangle for every player.
-3. Coordinates are clamped safely to the image boundaries instead of failing because a returned value is slightly outside 0–1000.
-4. Player row heights are lightly regularized when one detected row is abnormally tall or narrow.
-5. If the fixed grid still cannot be locked, the app falls back to a review-first whole-card read instead of stopping with an error. Every fallback score is highlighted so the user knows to verify it.
-6. Fixed-cell reads still split each nine into nine individual hole images, so neighboring scores cannot intentionally shift left or right.
+1. A Colonial scorecard reference image is bundled with the Netlify Function.
+2. The reader first determines the uploaded card's orientation relative to the known Colonial layout.
+3. A template-guided layout pass locates the physical card, the front-nine score columns, the back-nine score columns, and each handwritten player row.
+4. Each player's front and back nine are still split into nine separate cell images, so each hole is read independently.
+5. If template alignment is not confident enough, the app falls back to a review-first whole-card read instead of throwing a coordinate-pattern error.
+6. Errors are returned as golfer-friendly messages rather than raw coordinate/parser failures.
+
+## Photo guidance
+
+For best results, photograph the whole scorecard in landscape, directly overhead, with all four edges visible and minimal glare. The app can correct 90/180/270-degree orientation automatically.
 
 ## Review and calculations
 
@@ -23,4 +27,4 @@ Version 1.1 is a robustness update for fixed-cell OCR. It addresses failures suc
 
 ## Deployment
 
-This project is intended for GitHub-connected Netlify deployment and requires the secret environment variable `OPENAI_API_KEY`.
+Deploy from GitHub to Netlify. Keep `OPENAI_API_KEY` configured as a secret environment variable. The bundled template lives at `netlify/functions/assets/colonial-template-card.jpg` and must be uploaded with the rest of the project.
