@@ -1,55 +1,41 @@
-# Colonial Golf Match v0.6
+# Colonial Golf Match — v1.0
 
-Phase 2 adds the first **hole winner engine**.
+Version 1.0 changes the scorecard reader from row-sequence OCR to **fixed-cell OCR**.
 
-## Included
+## Why v1.0
 
-- Read and review 4-player or 5-player scorecards
-- Fast one-digit score correction (1-7)
-- First player labels the card as Team [Name]
-- Front, back, and total for every player
-- 1 Ball and 2 Ball calculations for 4-player cards
-- 1 Ball and 2+3 Ball calculations for 5-player cards
-- Multiple confirmed cards in one round
-- Automatic pairings between all confirmed cards
-- Hole-by-hole winner check for every pair of cards
-- Separate Front 9 and Back 9 comparisons
-- "Jacked" shown when a hole ties
+Earlier versions could occasionally shift a handwritten sequence left or right—for example, reading `6 5 6` as `5 6 5`, then inventing the final score in the row. Version 1.0 is designed specifically to prevent that failure mode.
 
-## Not included yet
+## Fixed-cell OCR workflow
 
-- Match-play running state
-- Automatic press logic
-- Bets won or money settlement
+1. The full scorecard image is used only to locate each player's front-nine and back-nine score grids and read the player names.
+2. The server crops each player's front and back score row.
+3. Each nine-hole row is split into **nine separate physical cell images**.
+4. OpenAI reads those nine images independently, one score per image.
+5. A score is never borrowed from a neighboring hole. If a cell cannot be read confidently, it is returned blank and highlighted for review instead of shifting the row.
 
-Those will be added after the hole winners are tested and confirmed.
+## Score review
 
+- Individual scores are currently 1–7 for the Colonial group.
+- A score of 1 is always flagged for confirmation.
+- Tap a score to select/replace it without backspacing.
+- Yellow cells need review.
+- Front, back, and total recalculate after edits.
 
-## v0.6 changes
-- Tied holes are labeled Tie, not Jacked.
-- Each front/back nine is scored as match play.
-- One automatic press starts after a side first reaches 2 up.
-- Final nine result displays Team Name (1), Team Name (2), or Jacked.
+## Calculated cards
 
+After confirming a scorecard:
 
-## Version 0.9
-- Adds a running match state after every hole.
-- Tied holes leave the running state unchanged.
-- Adds the Colonial automatic-press call sequence (2-0, 3-1, 2-0, 1-1, 0-2).
-- Keeps one press maximum per ball per nine.
+- 4-player cards calculate **1 Ball / 2 Ball**.
+- 5-player cards calculate **1 Ball / 2+3 Ball**.
+- The first player's first name is used as the visible team/card identifier.
+- From the calculated card, tap any hole to audit the player scores used.
+- Use **Review original scores** to correct a player score and automatically recalculate the ball card and matches.
 
+## Deployment
 
-## v0.9 changes
-- Uses the first name on each confirmed scorecard as the visible team name.
-- Phone-first comparison table with the winning hole score highlighted.
-- Each front/back result shows Team, Bets, and the final Colonial call (for example 5-3).
-- Removes the extra automatic-press sentence below each nine.
-- Adds an All Day net-bet line, or “Jacked All Day!” when the matchup is even.
+The project is intended for GitHub-connected Netlify deployment. Netlify needs the secret environment variable:
 
+`OPENAI_API_KEY`
 
-## Version 0.9 changes
-- Two-pass AI scorecard reading with hole-column anchoring to reduce left/right score shifts.
-- Any disagreement between the two AI passes is highlighted for review.
-- Confirmed cards retain the original scorecard photo when browser storage allows.
-- Calculated 1 Ball / 2 Ball / 2+3 Ball scores are tappable to show the exact player scores used for that hole.
-- Review Original Scores lets you return to a confirmed card, correct any player score, and automatically recalculate the calculated card and matchups.
+The server-side scorecard reader is in `netlify/functions/read-scorecard.js`.

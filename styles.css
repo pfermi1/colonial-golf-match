@@ -216,3 +216,5 @@ dialog img { width: 100%; max-height: 82vh; object-fit: contain; }
   .header-actions button { flex: 1 1 150px; }
   .ball-score-button { min-height: 36px; font-size: 14px; }
 }
+
+/* Version 1.0: fixed-cell OCR is server-side; review UI remains intentionally unchanged. */

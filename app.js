@@ -67,7 +67,7 @@ fileInput.addEventListener('change', async () => {
   if (!file) return;
   status.textContent = 'Preparing photo...';
   try {
-    imageDataUrl = await resizeImage(file, 1800, 0.86);
+    imageDataUrl = await resizeImage(file, 2400, 0.90);
     preview.src = imageDataUrl;
     preview.classList.remove('hidden');
     readButton.disabled = false;
@@ -80,7 +80,7 @@ fileInput.addEventListener('change', async () => {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading and verifying each score by hole column...';
+  status.textContent = 'Locking the score grid, then reading each hole cell separately...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
