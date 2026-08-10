@@ -1,41 +1,26 @@
-# Colonial Golf Match — v1.0
+# Colonial Golf Match — v1.1
 
-Version 1.0 changes the scorecard reader from row-sequence OCR to **fixed-cell OCR**.
+Version 1.1 is a robustness update for fixed-cell OCR. It addresses failures such as **“back nine for player 1 grid coordinates were invalid.”**
 
-## Why v1.0
+## What changed
 
-Earlier versions could occasionally shift a handwritten sequence left or right—for example, reading `6 5 6` as `5 6 5`, then inventing the final score in the row. Version 1.0 is designed specifically to prevent that failure mode.
+1. The server first tries to isolate the physical scorecard from the surrounding photo.
+2. The layout pass now finds only two shared horizontal score grids (front and back) plus one vertical row band per player. This is simpler and more stable than asking AI for a separate front/back rectangle for every player.
+3. Coordinates are clamped safely to the image boundaries instead of failing because a returned value is slightly outside 0–1000.
+4. Player row heights are lightly regularized when one detected row is abnormally tall or narrow.
+5. If the fixed grid still cannot be locked, the app falls back to a review-first whole-card read instead of stopping with an error. Every fallback score is highlighted so the user knows to verify it.
+6. Fixed-cell reads still split each nine into nine individual hole images, so neighboring scores cannot intentionally shift left or right.
 
-## Fixed-cell OCR workflow
+## Review and calculations
 
-1. The full scorecard image is used only to locate each player's front-nine and back-nine score grids and read the player names.
-2. The server crops each player's front and back score row.
-3. Each nine-hole row is split into **nine separate physical cell images**.
-4. OpenAI reads those nine images independently, one score per image.
-5. A score is never borrowed from a neighboring hole. If a cell cannot be read confidently, it is returned blank and highlighted for review instead of shifting the row.
-
-## Score review
-
-- Individual scores are currently 1–7 for the Colonial group.
-- A score of 1 is always flagged for confirmation.
-- Tap a score to select/replace it without backspacing.
-- Yellow cells need review.
-- Front, back, and total recalculate after edits.
-
-## Calculated cards
-
-After confirming a scorecard:
-
-- 4-player cards calculate **1 Ball / 2 Ball**.
-- 5-player cards calculate **1 Ball / 2+3 Ball**.
-- The first player's first name is used as the visible team/card identifier.
-- From the calculated card, tap any hole to audit the player scores used.
-- Use **Review original scores** to correct a player score and automatically recalculate the ball card and matches.
+- Individual Colonial scores are currently 1–7.
+- A 1 is always flagged for confirmation.
+- Tap a score to replace it without backspacing.
+- Front, back, and total update after edits.
+- 4-player cards calculate 1 Ball / 2 Ball.
+- 5-player cards calculate 1 Ball / 2+3 Ball.
+- Use **Review original scores** from a calculated card to correct a source score and automatically recalculate matches.
 
 ## Deployment
 
-The project is intended for GitHub-connected Netlify deployment. Netlify needs the secret environment variable:
-
-`OPENAI_API_KEY`
-
-The server-side scorecard reader is in `netlify/functions/read-scorecard.js`.
+This project is intended for GitHub-connected Netlify deployment and requires the secret environment variable `OPENAI_API_KEY`.
