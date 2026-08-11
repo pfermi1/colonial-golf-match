@@ -1,16 +1,14 @@
-# Colonial Golf Match v1.3
+# Colonial Golf Match v1.4
 
-Version 1.3 removes the fragile model-generated grid-coordinate step. After the physical card is isolated, the app uses fixed Colonial scorecard geometry for the five player rows and the 18 hole cells.
+Version 1.4 returns to full-image vision reading instead of cropping the scorecard into fixed cells. The model reads each player as a structured Hole 1 through Hole 18 table using the printed hole columns as anchors.
 
-## OCR behavior
+Key OCR rules:
 
-- Normalizes the uploaded photo to landscape.
-- Finds the large light physical scorecard without asking AI for coordinate strings.
-- Uses a small AI check only for 180-degree orientation; failure here never blocks the scan.
-- Uses fixed Colonial front-nine, back-nine, player-row and name-cell coordinates.
-- Reads each nine as nine separate cell images.
-- If a side cannot be read, those nine cells are left blank/highlighted instead of aborting the card or shifting values.
-- Individual player scores remain limited to 1-7 for the current Colonial configuration; a 1 is highlighted for confirmation.
-- Existing score review, calculated 1 Ball / 2 Ball / 2+3 Ball audit, match logic and correction flow remain in place.
+- Never shift a score left or right.
+- Return a blank/null value if an exact hole cell is unclear.
+- Never invent a final-hole score to complete a row.
+- Individual test-group scores are validated as 1-7; a 1 remains highlighted for confirmation.
+- Only cells marked uncertain by the first pass receive a second verification pass.
+- The existing manual correction, calculated 1 Ball / 2 Ball / 2+3 Ball audit, running match, and matchup screens remain available.
 
-The first handwritten player name remains the team/card name.
+The first player listed on each confirmed card remains the Team name for that round.
