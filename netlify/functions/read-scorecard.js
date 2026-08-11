@@ -1,25 +1,23 @@
-const fs = require('fs');
-const path = require('path');
 const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
-const BOX_SCALE = 1000;
-const TEMPLATE_FILENAME = 'colonial-template-card.jpg';
 
-function resolveTemplatePath() {
-  const candidates = [
-    path.join(__dirname, 'assets', TEMPLATE_FILENAME),
-    path.join(process.cwd(), 'netlify', 'functions', 'assets', TEMPLATE_FILENAME),
-    process.env.LAMBDA_TASK_ROOT ? path.join(process.env.LAMBDA_TASK_ROOT, 'netlify', 'functions', 'assets', TEMPLATE_FILENAME) : null,
-    process.env.LAMBDA_TASK_ROOT ? path.join(process.env.LAMBDA_TASK_ROOT, 'assets', TEMPLATE_FILENAME) : null
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  throw new Error(`Colonial template asset was not bundled with the Netlify Function. Checked: ${candidates.join(', ')}`);
-}
+// Fixed Colonial scorecard geometry after the physical card is isolated and
+// normalized to landscape. These values come from the known Colonial card
+// template and intentionally do not depend on OCR/model-discovered grid lines.
+const GEOMETRY = {
+  front: [0.142, 0.486],
+  back: [0.516, 0.846],
+  name: [0.000, 0.142],
+  // Five physical player rows between the first HANDICAP row and PAR row.
+  rows: [
+    [0.389, 0.430],
+    [0.430, 0.471],
+    [0.471, 0.512],
+    [0.512, 0.553],
+    [0.553, 0.594]
+  ]
+};
 
 exports.handler = async function handler(event) {
   if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
@@ -34,231 +32,227 @@ exports.handler = async function handler(event) {
     }
 
     const playerCount = [4, 5].includes(Number(expectedPlayers)) ? Number(expectedPlayers) : 4;
-    const templateBuffer = fs.readFileSync(resolveTemplatePath());
-    const templateDataUrl = `data:image/jpeg;base64,${templateBuffer.toString('base64')}`;
     const originalBuffer = dataUrlToBuffer(imageDataUrl);
 
-    // 1) Normalize EXIF orientation, then ask the model only which quarter-turn makes
-    // the photographed Colonial card read in the same direction as the known template.
-    const orientedBuffer = await orientLikeTemplate(apiKey, imageDataUrl, templateDataUrl, originalBuffer);
-    const orientedDataUrl = await bufferToDataUrl(orientedBuffer);
+    // v1.3 deliberately removes template-string/grid-coordinate discovery.
+    // The software first isolates the bright physical card, rotates it to
+    // landscape, then uses fixed Colonial cell coordinates.
+    let cardBuffer = await normalizeAndFindCard(originalBuffer);
+    cardBuffer = await orientCardSafely(apiKey, cardBuffer);
 
-    // 2) Find the physical card using the template as the reference. If this pass is
-    // uncertain, keep the whole image rather than aborting.
-    const cardBuffer = await cropCardUsingTemplate(apiKey, orientedDataUrl, templateDataUrl, orientedBuffer);
-    const cardDataUrl = await bufferToDataUrl(cardBuffer);
     const cardMeta = await sharp(cardBuffer, { failOn: 'none' }).metadata();
     if (!cardMeta.width || !cardMeta.height) throw new Error('Could not prepare the scorecard image.');
 
-    // 3) Locate only the stable template features needed for cell extraction.
-    let layout;
-    try {
-      layout = await locateTemplateGrid(apiKey, cardDataUrl, templateDataUrl, playerCount);
-      layout = normalizeGridLayout(layout, playerCount);
-    } catch (layoutError) {
-      console.warn('Template grid lock failed; using review-first fallback:', layoutError.message);
-      const fallback = await readWholeCardFallback(apiKey, cardDataUrl, playerCount);
-      return reply(200, {
-        players: fallback.players,
-        ocrMode: 'template-fallback-review',
-        warning: 'The Colonial template could not be aligned tightly enough. Please review the highlighted scores.'
-      });
+    const nameImages = [];
+    for (let i = 0; i < playerCount; i++) {
+      nameImages.push(await cropNameCell(cardBuffer, GEOMETRY.rows[i], cardMeta.width, cardMeta.height));
     }
+    const names = await readNamesSafely(apiKey, nameImages, playerCount);
 
     const players = [];
     for (let playerIndex = 0; playerIndex < playerCount; playerIndex++) {
-      const item = layout.players[playerIndex];
-      const frontBox = rowGridBox(layout.frontGrid, item.row);
-      const backBox = rowGridBox(layout.backGrid, item.row);
+      const row = GEOMETRY.rows[playerIndex];
+      const frontCells = await makeFixedCells(cardBuffer, GEOMETRY.front, row, cardMeta.width, cardMeta.height);
+      const backCells = await makeFixedCells(cardBuffer, GEOMETRY.back, row, cardMeta.width, cardMeta.height);
 
-      let front;
-      let back;
-      try {
-        const frontCells = await makeNineCellImages(cardBuffer, frontBox, cardMeta.width, cardMeta.height);
-        const backCells = await makeNineCellImages(cardBuffer, backBox, cardMeta.width, cardMeta.height);
-        front = await readNineCells(apiKey, frontCells, 1);
-        back = await readNineCells(apiKey, backCells, 10);
-      } catch (cellError) {
-        console.warn(`Player ${playerIndex + 1} fixed-cell read failed:`, cellError.message);
-        const fallback = await readWholeCardFallback(apiKey, cardDataUrl, playerCount);
-        return reply(200, {
-          players: fallback.players,
-          ocrMode: 'template-fallback-review',
-          warning: 'One score row could not be split cleanly into nine boxes. Please review the highlighted scores.'
-        });
-      }
+      // Each side is independent. If one side cannot be parsed, only those nine
+      // holes become blank/highlighted instead of aborting the whole scorecard.
+      const [front, back] = await Promise.all([
+        readNineCellsSafely(apiKey, frontCells, 1),
+        readNineCellsSafely(apiKey, backCells, 10)
+      ]);
 
       const scores = [...front.scores, ...back.scores];
       const uncertainHoles = [...new Set([...front.uncertainHoles, ...back.uncertainHoles])];
       scores.forEach((score, index) => {
         if (score === 1 && !uncertainHoles.includes(index + 1)) uncertainHoles.push(index + 1);
+        if (score == null && !uncertainHoles.includes(index + 1)) uncertainHoles.push(index + 1);
       });
       uncertainHoles.sort((a, b) => a - b);
 
-      players.push({ name: item.name, scores, uncertainHoles });
+      players.push({
+        name: names[playerIndex] || `Player ${playerIndex + 1}`,
+        scores,
+        uncertainHoles
+      });
     }
 
-    return reply(200, { players, ocrMode: 'colonial-template-v1.2.1' });
+    return reply(200, {
+      players,
+      ocrMode: 'colonial-fixed-template-v1.3',
+      warning: players.some(p => p.uncertainHoles.length)
+        ? 'Please review the highlighted holes. Unclear cells were left blank rather than shifted or invented.'
+        : undefined
+    });
   } catch (error) {
     console.error(error);
     return reply(500, { error: friendlyError(error) });
   }
 };
 
-async function orientLikeTemplate(apiKey, uploadDataUrl, templateDataUrl, originalBuffer) {
-  let autoOriented = await sharp(originalBuffer, { failOn: 'none' }).rotate().jpeg({ quality: 94 }).toBuffer();
-  const autoUrl = `data:image/jpeg;base64,${autoOriented.toString('base64')}`;
-  try {
-    const raw = await callVision(apiKey, [
-      {
-        type: 'input_text',
-        text: `Image 1 is the known Colonial scorecard reference. Image 2 is a new photo of the same scorecard design. Determine the clockwise quarter-turn needed for Image 2 so the printed HOLE row reads left-to-right like the reference and holes 1-9 are on the left, holes 10-18 on the right. Return ONLY JSON: {"rotate":0}. Allowed rotate values: 0, 90, 180, 270. Do not return any other text.`
-      },
-      { type: 'input_text', text: 'REFERENCE TEMPLATE' },
-      { type: 'input_image', image_url: templateDataUrl, detail: 'high' },
-      { type: 'input_text', text: 'NEW SCORECARD PHOTO' },
-      { type: 'input_image', image_url: autoUrl, detail: 'high' }
-    ], 300);
-    const parsed = parseJson(extractOutputText(raw));
-    const rotate = [0, 90, 180, 270].includes(Number(parsed.rotate)) ? Number(parsed.rotate) : 0;
-    if (rotate) autoOriented = await sharp(autoOriented, { failOn: 'none' }).rotate(rotate).jpeg({ quality: 94 }).toBuffer();
-  } catch (error) {
-    console.warn('Quarter-turn orientation check skipped:', error.message);
+async function normalizeAndFindCard(buffer) {
+  let img = sharp(buffer, { failOn: 'none' }).rotate();
+  let meta = await img.metadata();
+  if (!meta.width || !meta.height) throw new Error('Could not open the uploaded photo.');
+
+  // Put the photo into landscape first. The later orientation check only needs
+  // to decide between right-side-up and upside-down.
+  if (meta.height > meta.width) img = img.rotate(90);
+  let landscape = await img.jpeg({ quality: 95 }).toBuffer();
+
+  // Find the physical scorecard from brightness. This avoids asking the model
+  // to return coordinate strings. The scorecard is a large light rectangle in
+  // typical cart/table/laptop photos.
+  const box = await detectBrightCardBox(landscape);
+  if (box) {
+    try {
+      landscape = await sharp(landscape, { failOn: 'none' })
+        .extract(box)
+        .resize({ width: 2800, height: 1700, fit: 'fill' })
+        .sharpen()
+        .jpeg({ quality: 96 })
+        .toBuffer();
+      return landscape;
+    } catch (error) {
+      console.warn('Bright-card crop skipped:', error.message);
+    }
   }
-  return autoOriented;
-}
 
-async function cropCardUsingTemplate(apiKey, imageDataUrl, templateDataUrl, imageBuffer) {
-  try {
-    const raw = await callVision(apiKey, [
-      {
-        type: 'input_text',
-        text: `Use Image 1 as the reference Colonial scorecard design. In Image 2, locate the OUTER BLUE-EDGED PHYSICAL SCORECARD rectangle, not the table or background. Return ONLY JSON with normalized 0-1000 coordinates relative to Image 2: {"cardBox":[x1,y1,x2,y2]}. Include all four card edges with a very small margin. No commentary.`
-      },
-      { type: 'input_text', text: 'REFERENCE TEMPLATE' },
-      { type: 'input_image', image_url: templateDataUrl, detail: 'high' },
-      { type: 'input_text', text: 'NEW PHOTO' },
-      { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-    ], 350);
-    const parsed = parseJson(extractOutputText(raw));
-    const safeBox = sanitizeBox(parsed.cardBox, { minWidth: 380, minHeight: 240 });
-    if (!safeBox) return normalizeCardBuffer(imageBuffer);
-
-    const meta = await sharp(imageBuffer, { failOn: 'none' }).metadata();
-    if (!meta.width || !meta.height) return normalizeCardBuffer(imageBuffer);
-    const px = boxToPixels(expandBox(safeBox, 8), meta.width, meta.height);
-    const width = px.right - px.left;
-    const height = px.bottom - px.top;
-    if (width < meta.width * 0.42 || height < meta.height * 0.28) return normalizeCardBuffer(imageBuffer);
-
-    return await sharp(imageBuffer, { failOn: 'none' })
-      .extract({ left: px.left, top: px.top, width, height })
-      .resize({ width: 2600, withoutEnlargement: false })
-      .sharpen()
-      .jpeg({ quality: 95 })
-      .toBuffer();
-  } catch (error) {
-    console.warn('Template card crop skipped:', error.message);
-    return normalizeCardBuffer(imageBuffer);
-  }
-}
-
-async function normalizeCardBuffer(buffer) {
-  return sharp(buffer, { failOn: 'none' })
-    .resize({ width: 2600, withoutEnlargement: false })
+  // Never stop the scan because card isolation was imperfect.
+  return sharp(landscape, { failOn: 'none' })
+    .resize({ width: 2800, height: 1700, fit: 'inside', background: '#ffffff' })
+    .flatten({ background: '#ffffff' })
     .sharpen()
-    .jpeg({ quality: 95 })
+    .jpeg({ quality: 96 })
     .toBuffer();
 }
 
-async function locateTemplateGrid(apiKey, cardDataUrl, templateDataUrl, playerCount) {
-  const prompt = `Image 1 is the known Colonial scorecard template. Image 2 is a cropped photo of that same scorecard design with handwritten scores.
+async function detectBrightCardBox(buffer) {
+  const preview = sharp(buffer, { failOn: 'none' }).resize({ width: 700 }).grayscale();
+  const { data, info } = await preview.raw().toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
+  if (!width || !height) return null;
 
-Using the template geometry, locate ONLY these items in Image 2:
-- frontGrid: [x1,x2], the horizontal span of the NINE player score cells for holes 1-9. Exclude the handwritten name area and exclude OUT.
-- backGrid: [x1,x2], the horizontal span of the NINE player score cells for holes 10-18. Exclude IN, TOT, HCP, NET.
-- exactly ${playerCount} player rows, top-to-bottom. For each return the handwritten player's name and row:[y1,y2] covering only that player's score-cell row.
-
-Coordinates are normalized integers 0-1000 relative to Image 2.
-Return ONLY JSON exactly like:
-{"frontGrid":[150,480],"backGrid":[520,850],"players":[{"name":"Paul","row":[390,435]}]}
-
-Important:
-- Use the printed hole columns from the template as anchors; do not estimate equal thirds or shift columns based on handwriting.
-- Each player row uses one shared y-range across front and back.
-- Exactly ${playerCount} players.
-- Rows must be in top-to-bottom order.
-- Do not read any scores in this pass.
-- No markdown or commentary.`;
-
-  const raw = await callVision(apiKey, [
-    { type: 'input_text', text: prompt },
-    { type: 'input_text', text: 'REFERENCE TEMPLATE' },
-    { type: 'input_image', image_url: templateDataUrl, detail: 'high' },
-    { type: 'input_text', text: 'CROPPED NEW SCORECARD' },
-    { type: 'input_image', image_url: cardDataUrl, detail: 'high' }
-  ], 1200);
-  return parseJson(extractOutputText(raw));
-}
-
-function normalizeGridLayout(data, expectedPlayers) {
-  if (!data || !Array.isArray(data.players) || data.players.length !== expectedPlayers) {
-    throw new Error(`Could not identify all ${expectedPlayers} player rows on the Colonial template.`);
-  }
-
-  const frontGrid = sanitizeRange(data.frontGrid, 0.20, 'front-nine score grid');
-  const backGrid = sanitizeRange(data.backGrid, 0.20, 'back-nine score grid');
-  if (backGrid[0] <= frontGrid[1] - 20) throw new Error('The front and back score grids overlap unexpectedly.');
-
-  const players = data.players.map((player, index) => ({
-    name: String(player.name || '').trim() || `Player ${index + 1}`,
-    row: sanitizeRange(player.row, 0.012, `player ${index + 1} score row`)
-  }));
-
-  const centers = players.map(p => (p.row[0] + p.row[1]) / 2);
-  for (let i = 1; i < centers.length; i++) {
-    if (centers[i] <= centers[i - 1]) throw new Error('Player rows were not found in top-to-bottom order.');
-  }
-
-  const heights = players.map(p => p.row[1] - p.row[0]).sort((a, b) => a - b);
-  const medianHeight = heights[Math.floor(heights.length / 2)] || 40;
-  players.forEach(player => {
-    const height = player.row[1] - player.row[0];
-    if (height < medianHeight * 0.60 || height > medianHeight * 1.65) {
-      const center = (player.row[0] + player.row[1]) / 2;
-      player.row = [
-        clamp(Math.round(center - medianHeight / 2), 0, 998),
-        clamp(Math.round(center + medianHeight / 2), 2, 1000)
-      ];
+  // Ignore a small outside margin, then count bright pixels per row/column.
+  const threshold = 150;
+  const colCounts = new Array(width).fill(0);
+  const rowCounts = new Array(height).fill(0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const v = data[y * width + x];
+      if (v >= threshold) {
+        colCounts[x]++;
+        rowCounts[y]++;
+      }
     }
+  }
+
+  const xCandidates = colCounts
+    .map((count, x) => ({ x, count }))
+    .filter(v => v.count > height * 0.22)
+    .map(v => v.x);
+  const yCandidates = rowCounts
+    .map((count, y) => ({ y, count }))
+    .filter(v => v.count > width * 0.30)
+    .map(v => v.y);
+
+  if (!xCandidates.length || !yCandidates.length) return null;
+  let x1 = Math.max(0, Math.min(...xCandidates) - 8);
+  let x2 = Math.min(width - 1, Math.max(...xCandidates) + 8);
+  let y1 = Math.max(0, Math.min(...yCandidates) - 8);
+  let y2 = Math.min(height - 1, Math.max(...yCandidates) + 8);
+
+  // Reject implausibly small boxes; the full image fallback is safer.
+  if ((x2 - x1) < width * 0.45 || (y2 - y1) < height * 0.28) return null;
+
+  const fullMeta = await sharp(buffer, { failOn: 'none' }).metadata();
+  if (!fullMeta.width || !fullMeta.height) return null;
+  const sx = fullMeta.width / width;
+  const sy = fullMeta.height / height;
+  const left = clamp(Math.floor(x1 * sx), 0, fullMeta.width - 2);
+  const top = clamp(Math.floor(y1 * sy), 0, fullMeta.height - 2);
+  const right = clamp(Math.ceil((x2 + 1) * sx), left + 2, fullMeta.width);
+  const bottom = clamp(Math.ceil((y2 + 1) * sy), top + 2, fullMeta.height);
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+async function orientCardSafely(apiKey, cardBuffer) {
+  const cardUrl = await bufferToDataUrl(cardBuffer);
+  try {
+    const raw = await callVision(apiKey, [{
+      type: 'input_text',
+      text: 'This is a Colonial golf scorecard already cropped to landscape. Is it upside down? Return ONLY JSON: {"rotate":0} or {"rotate":180}. The correct orientation has HOLE then holes 1-9 on the left and holes 10-18 on the right, with player rows below the first HANDICAP row.'
+    }, {
+      type: 'input_image', image_url: cardUrl, detail: 'low'
+    }], 120);
+    const parsed = parseJson(extractOutputText(raw));
+    if (Number(parsed.rotate) === 180) {
+      return sharp(cardBuffer, { failOn: 'none' }).rotate(180).jpeg({ quality: 96 }).toBuffer();
+    }
+  } catch (error) {
+    // Orientation uncertainty must never block the card. Most user photos are
+    // already right-side-up after EXIF normalization.
+    console.warn('180-degree orientation check skipped:', error.message);
+  }
+  return cardBuffer;
+}
+
+async function cropNameCell(buffer, rowRange, width, height) {
+  const left = Math.floor(GEOMETRY.name[0] * width);
+  const right = Math.ceil(GEOMETRY.name[1] * width);
+  const top = Math.max(0, Math.floor(rowRange[0] * height) - 6);
+  const bottom = Math.min(height, Math.ceil(rowRange[1] * height) + 6);
+  const crop = await sharp(buffer, { failOn: 'none' })
+    .extract({ left, top, width: right - left, height: bottom - top })
+    .resize({ width: 700, height: 260, fit: 'contain', background: '#ffffff' })
+    .grayscale()
+    .normalize()
+    .sharpen()
+    .jpeg({ quality: 96 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${crop.toString('base64')}`;
+}
+
+async function readNamesSafely(apiKey, images, count) {
+  const content = [{
+    type: 'input_text',
+    text: `Read the handwritten golfer name from each separate image, top-to-bottom. Return ONLY JSON exactly like {"names":["Paul","Steve","Dec","Craig"]}. Exactly ${count} names. If a name is unclear, return "Player N" for that position. Do not read scores.`
+  }];
+  images.forEach((image, i) => {
+    content.push({ type: 'input_text', text: `Player ${i + 1} name cell` });
+    content.push({ type: 'input_image', image_url: image, detail: 'high' });
   });
-
-  return { frontGrid, backGrid, players };
+  try {
+    const raw = await callVision(apiKey, content, 350);
+    const parsed = parseJson(extractOutputText(raw));
+    if (!Array.isArray(parsed.names) || parsed.names.length !== count) throw new Error('Name count mismatch.');
+    return parsed.names.map((name, i) => String(name || '').trim() || `Player ${i + 1}`);
+  } catch (error) {
+    console.warn('Name OCR skipped:', error.message);
+    return Array.from({ length: count }, (_, i) => `Player ${i + 1}`);
+  }
 }
 
-function rowGridBox(xRange, yRange) {
-  return [xRange[0], yRange[0], xRange[1], yRange[1]];
-}
-
-async function makeNineCellImages(sourceBuffer, box, imageWidth, imageHeight) {
-  const safeBox = sanitizeBox(box, { minWidth: 180, minHeight: 10 });
-  if (!safeBox) throw new Error('A score row could not be cropped safely.');
-  const px = boxToPixels(safeBox, imageWidth, imageHeight);
-  const rowWidth = px.right - px.left;
-  const rowHeight = px.bottom - px.top;
-  if (rowWidth < 180 || rowHeight < 10) throw new Error('A score row was too narrow to split into nine holes.');
+async function makeFixedCells(sourceBuffer, xRange, yRange, imageWidth, imageHeight) {
+  const leftPx = Math.round(xRange[0] * imageWidth);
+  const rightPx = Math.round(xRange[1] * imageWidth);
+  const rowTop = Math.round(yRange[0] * imageHeight);
+  const rowBottom = Math.round(yRange[1] * imageHeight);
+  const totalWidth = rightPx - leftPx;
+  const rowHeight = rowBottom - rowTop;
+  if (totalWidth < 180 || rowHeight < 10) throw new Error('Fixed score-cell geometry was not usable.');
 
   const images = [];
   for (let cell = 0; cell < 9; cell++) {
-    const rawLeft = px.left + (rowWidth * cell / 9);
-    const rawRight = px.left + (rowWidth * (cell + 1) / 9);
+    const rawLeft = leftPx + totalWidth * cell / 9;
+    const rawRight = leftPx + totalWidth * (cell + 1) / 9;
     const cellWidth = rawRight - rawLeft;
-    const insetX = Math.max(1, Math.round(cellWidth * 0.035));
+    const insetX = Math.max(2, Math.round(cellWidth * 0.06));
+    const verticalPad = Math.max(2, Math.round(rowHeight * 0.12));
     const left = clamp(Math.round(rawLeft) + insetX, 0, imageWidth - 2);
     const right = clamp(Math.round(rawRight) - insetX, left + 2, imageWidth);
-    const verticalPad = Math.max(2, Math.round(rowHeight * 0.18));
-    const top = clamp(px.top - verticalPad, 0, imageHeight - 2);
-    const bottom = clamp(px.bottom + verticalPad, top + 2, imageHeight);
+    const top = clamp(rowTop - verticalPad, 0, imageHeight - 2);
+    const bottom = clamp(rowBottom + verticalPad, top + 2, imageHeight);
 
     const crop = await sharp(sourceBuffer, { failOn: 'none' })
       .extract({ left, top, width: right - left, height: bottom - top })
@@ -268,147 +262,53 @@ async function makeNineCellImages(sourceBuffer, box, imageWidth, imageHeight) {
       .sharpen()
       .jpeg({ quality: 96 })
       .toBuffer();
-
     images.push(`data:image/jpeg;base64,${crop.toString('base64')}`);
   }
   return images;
 }
 
-async function readNineCells(apiKey, cellImages, firstHole) {
-  const content = [{
-    type: 'input_text',
-    text: `Read nine SEPARATE handwritten golf-score cell images. Each supplied image is exactly one physical hole box from a Colonial scorecard, in order for holes ${firstHole} through ${firstHole + 8}.
+async function readNineCellsSafely(apiKey, cellImages, firstHole) {
+  try {
+    const content = [{
+      type: 'input_text',
+      text: `Read nine SEPARATE handwritten golf-score cell images, one image per physical hole, in order for holes ${firstHole}-${firstHole + 8}. Valid individual scores are 1 through 7. Return ONLY JSON exactly like {"scores":[6,5,6,4,5,4,5,4,5],"uncertain":[4]}. Exactly 9 entries. Use null if a cell is unclear. Never shift a score to a neighboring hole. Never invent a missing final-hole score. A 1 is possible but rare and must be listed uncertain.`
+    }];
+    cellImages.forEach((image, i) => {
+      content.push({ type: 'input_text', text: `Hole ${firstHole + i} ONLY` });
+      content.push({ type: 'input_image', image_url: image, detail: 'high' });
+    });
 
-Read each image independently. Valid individual scores are 1 through 7.
-Return ONLY JSON exactly like:
-{"scores":[6,5,6,4,5,4,5,4,5],"uncertain":[4]}
+    const raw = await callVision(apiKey, content, 800);
+    const parsed = parseJson(extractOutputText(raw));
+    if (!Array.isArray(parsed.scores) || parsed.scores.length !== 9) throw new Error('Nine-cell response length mismatch.');
 
-Rules:
-- Exactly 9 score entries in the same order as the images.
-- Integer 1-7 or null if uncertain.
-- Never shift a digit left or right.
-- Never use neighboring cells to infer a missing value.
-- Never invent a final-hole score to complete a pattern.
-- A 1 is possible but rare; mark its 1-based cell position uncertain.
-- Mark null or genuinely ambiguous cells uncertain.
-- No commentary or markdown.`
-  }];
-
-  cellImages.forEach((image, index) => {
-    content.push({ type: 'input_text', text: `Physical cell ${index + 1}; Hole ${firstHole + index}` });
-    content.push({ type: 'input_image', image_url: image, detail: 'high' });
-  });
-
-  const raw = await callVision(apiKey, content, 850);
-  const parsed = parseJson(extractOutputText(raw));
-  if (!Array.isArray(parsed.scores) || parsed.scores.length !== 9) {
-    throw new Error(`Holes ${firstHole}-${firstHole + 8} did not return nine independent values.`);
-  }
-
-  const uncertainPositions = new Set(
-    Array.isArray(parsed.uncertain)
-      ? parsed.uncertain.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 9)
-      : []
-  );
-
-  const scores = parsed.scores.map((value, index) => {
-    if (value === null || value === '' || typeof value === 'undefined') {
-      uncertainPositions.add(index + 1);
-      return null;
-    }
-    const score = Number(value);
-    if (!Number.isInteger(score) || score < 1 || score > 7) {
-      uncertainPositions.add(index + 1);
-      return null;
-    }
-    if (score === 1) uncertainPositions.add(index + 1);
-    return score;
-  });
-
-  return {
-    scores,
-    uncertainHoles: [...uncertainPositions].map(position => firstHole + position - 1)
-  };
-}
-
-async function readWholeCardFallback(apiKey, cardDataUrl, playerCount) {
-  const prompt = `This is the standard Colonial Golf scorecard layout. Read exactly ${playerCount} handwritten player rows, top-to-bottom. For every player, read holes 1 through 18 by the printed hole columns. Ignore names/values in yardage, handicap, PAR, OUT, IN, TOT, HCP, NET, and any betting/calculation rows.
-
-Return ONLY JSON:
-{"players":[{"name":"Paul","holes":{"1":5,"2":4,"3":3,"4":4,"5":3,"6":4,"7":5,"8":5,"9":4,"10":4,"11":4,"12":4,"13":5,"14":4,"15":5,"16":5,"17":4,"18":4},"uncertainHoles":[6]}]}
-
-Rules:
-- Exactly ${playerCount} players.
-- Every hole key 1-18 appears.
-- Valid individual scores are 1-7; use null if uncertain.
-- Do not shift neighboring values to fill a gap.
-- No markdown or commentary.`;
-
-  const raw = await callVision(apiKey, [
-    { type: 'input_text', text: prompt },
-    { type: 'input_image', image_url: cardDataUrl, detail: 'high' }
-  ], 2200);
-  const parsed = parseJson(extractOutputText(raw));
-  if (!parsed || !Array.isArray(parsed.players) || parsed.players.length !== playerCount) {
-    throw new Error('The scorecard could not be read reliably. Try a straighter landscape photo with all four card edges visible.');
-  }
-
-  const players = parsed.players.map((player, index) => {
-    const scores = [];
-    for (let hole = 1; hole <= 18; hole++) {
-      const rawValue = player.holes?.[String(hole)] ?? player.holes?.[hole];
-      const score = Number(rawValue);
-      scores.push(Number.isInteger(score) && score >= 1 && score <= 7 ? score : null);
-    }
+    const uncertain = new Set(Array.isArray(parsed.uncertain) ? parsed.uncertain.map(Number) : []);
+    const scores = parsed.scores.map((value, index) => {
+      if (value == null || value === '') {
+        uncertain.add(index + 1);
+        return null;
+      }
+      const score = Number(value);
+      if (!Number.isInteger(score) || score < 1 || score > 7) {
+        uncertain.add(index + 1);
+        return null;
+      }
+      if (score === 1) uncertain.add(index + 1);
+      return score;
+    });
     return {
-      name: String(player.name || '').trim() || `Player ${index + 1}`,
       scores,
-      uncertainHoles: Array.from({ length: 18 }, (_, i) => i + 1)
+      uncertainHoles: [...uncertain]
+        .filter(n => Number.isInteger(n) && n >= 1 && n <= 9)
+        .map(n => firstHole + n - 1)
     };
-  });
-  return { players };
-}
-
-function sanitizeRange(value, minimumFraction, label) {
-  if (!Array.isArray(value) || value.length !== 2) throw new Error(`Could not locate the ${label}.`);
-  let a = Number(value[0]);
-  let b = Number(value[1]);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) throw new Error(`Could not locate the ${label}.`);
-  a = clamp(Math.round(a), 0, 1000);
-  b = clamp(Math.round(b), 0, 1000);
-  if (b < a) [a, b] = [b, a];
-  if ((b - a) < BOX_SCALE * minimumFraction) throw new Error(`The ${label} was located too narrowly.`);
-  return [a, b];
-}
-
-function sanitizeBox(value, options = {}) {
-  if (!Array.isArray(value) || value.length !== 4) return null;
-  let nums = value.map(Number);
-  if (nums.some(n => !Number.isFinite(n))) return null;
-  let [x1, y1, x2, y2] = nums.map(n => clamp(Math.round(n), 0, 1000));
-  if (x2 < x1) [x1, x2] = [x2, x1];
-  if (y2 < y1) [y1, y2] = [y2, y1];
-  if ((x2 - x1) < (options.minWidth || 40) || (y2 - y1) < (options.minHeight || 20)) return null;
-  return [x1, y1, x2, y2];
-}
-
-function expandBox(box, amount) {
-  return [
-    clamp(box[0] - amount, 0, 1000),
-    clamp(box[1] - amount, 0, 1000),
-    clamp(box[2] + amount, 0, 1000),
-    clamp(box[3] + amount, 0, 1000)
-  ];
-}
-
-function boxToPixels(box, width, height) {
-  const [x1, y1, x2, y2] = box;
-  return {
-    left: clamp(Math.floor(x1 / BOX_SCALE * width), 0, width - 2),
-    top: clamp(Math.floor(y1 / BOX_SCALE * height), 0, height - 2),
-    right: clamp(Math.ceil(x2 / BOX_SCALE * width), 2, width),
-    bottom: clamp(Math.ceil(y2 / BOX_SCALE * height), 2, height)
-  };
+  } catch (error) {
+    console.warn(`Holes ${firstHole}-${firstHole + 8} OCR failed; leaving blank for review:`, error.message);
+    return {
+      scores: Array(9).fill(null),
+      uncertainHoles: Array.from({ length: 9 }, (_, i) => firstHole + i)
+    };
+  }
 }
 
 async function callVision(apiKey, content, maxOutputTokens) {
@@ -460,20 +360,13 @@ function parseJson(text) {
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start < 0 || end < start) throw new Error('The AI response did not contain usable JSON.');
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1));
-  } catch (error) {
-    throw new Error('The AI response could not be parsed as scorecard data.');
-  }
+  return JSON.parse(cleaned.slice(start, end + 1));
 }
 
 function friendlyError(error) {
   const message = String(error?.message || 'Unable to read this scorecard.');
-  if (/expected pattern|string did not match|coordinates were invalid/i.test(message)) {
-    return 'The Colonial template could not be aligned to this photo. Try a straight landscape photo with all four card edges visible.';
-  }
-  if (/JSON|parsed|score grid|row|crop/i.test(message)) {
-    return 'The score grid could not be locked cleanly. Try a straight landscape photo with all four card edges visible.';
+  if (/string did not match|expected pattern/i.test(message)) {
+    return 'The scan could not complete, but this is no longer a photo-alignment requirement. Please try once more; if it repeats, the function log will identify the exact failing step.';
   }
   return message;
 }
