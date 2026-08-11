@@ -80,7 +80,7 @@ fileInput.addEventListener('change', async () => {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading the full scorecard by printed hole columns, then verifying only uncertain cells...';
+  status.textContent = 'Finding player rows, then reading each player independently...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
