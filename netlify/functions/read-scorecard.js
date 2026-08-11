@@ -1,4 +1,4 @@
-const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
+const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
 exports.handler = async function handler(event) {
   if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
@@ -29,9 +29,9 @@ exports.handler = async function handler(event) {
 
     return reply(200, {
       players,
-      ocrMode: 'independent-player-row-v1.5',
+      ocrMode: 'conservative-player-row-v1.6',
       warning: players.some(p => p.uncertainHoles.length)
-        ? 'Please review the yellow holes. Each player row was read independently; unclear cells were left blank or flagged.'
+        ? 'Please review the yellow holes. v1.6 uses one conservative read per player row and does not run any automatic correction pass.'
         : undefined
     });
   } catch (error) {
@@ -72,22 +72,27 @@ There must be exactly ${playerCount} entries.`;
 async function readOnePlayerRow(apiKey, imageDataUrl, playerIndex, playerName, playerCount) {
   const ordinal = ordinalWord(playerIndex + 1);
   const prompt = `
-You are reading ONE photographed Colonial Golf Club paper scorecard.
+You are transcribing ONE handwritten player row from a photographed Colonial Golf Club paper scorecard.
 
 Read ONLY the ${ordinal} handwritten player row out of ${playerCount} player rows in the score-entry area immediately above the printed PAR row.
 The player is labeled approximately ${JSON.stringify(playerName)}.
 
-CRITICAL ROW-ISOLATION RULES:
-- Ignore every handwritten score row above and below this one.
-- Do NOT copy, borrow, average, infer, or continue a sequence from another player's row.
-- Use the printed hole columns as fixed anchors: Hole 1 through Hole 9 on the front, then Hole 10 through Hole 18 on the back.
-- Read exactly the score physically written in this player's row under each printed hole number.
-- Do not treat the row as a loose string of digits. Hole 6 must come from the Hole 6 column, Hole 7 from Hole 7, etc.
-- If one score is unclear or you are not certain the digit belongs to that exact hole, return null for that hole. Do not shift later scores left to fill the gap.
-- Never invent Hole 18 simply to make 18 values.
-- Ignore OUT, IN, TOT, HCP, NET, PAR, handicap, yardage, scorer, attest, and any handwritten 1 Ball / 2 Ball / 2+3 Ball row.
-- Individual scores for this current group are normally integers 1 through 7. Anything else should be null and marked uncertain.
-- A clearly written 1 may be returned as 1, but always include that hole in uncertainHoles for human hole-in-one confirmation.
+THIS IS A CONSERVATIVE TRANSCRIPTION TASK. ACCURACY IS MORE IMPORTANT THAN COMPLETENESS.
+
+STRICT RULES:
+- Make ONE transcription only. Do not revise a digit because a neighboring score "looks more likely".
+- Ignore every handwritten score row above and below this player's row.
+- Anchor every value to the printed hole column directly above it: Holes 1-9, then Holes 10-18.
+- Never shift a score left or right to fill a missing or uncertain cell.
+- Never infer a pattern from neighboring scores. A sequence such as 5,4,3,4,3,4 must be copied exactly as written, not smoothed into repeated 4s.
+- Distinguish handwritten 3, 4, 5, 6, and 7 by their visible strokes. If you cannot confidently distinguish the digit in its exact cell, return null for that hole.
+- Do not borrow a digit from OUT, IN, TOT, PAR, HCP, NET, yardage, another player, or any 1 Ball / 2 Ball / 2+3 Ball row.
+- Do not invent Hole 9 or Hole 18 merely to complete the row.
+- For this current group, individual scores are integers 1 through 7. Values outside 1-7 must be null.
+- A clearly written 1 may be returned as 1, but ALWAYS flag that hole as uncertain for human hole-in-one confirmation.
+- It is acceptable to return several nulls. A blank/highlighted cell is preferable to a confident wrong score.
+
+Before producing JSON, visually trace this one player's row from Hole 1 to Hole 18 and preserve the physical column position of every digit.
 
 Return ONLY JSON in this exact shape:
 {
@@ -95,7 +100,7 @@ Return ONLY JSON in this exact shape:
   "scores": [5,4,3,4,3,4,5,5,4,4,4,4,5,4,5,5,4,4],
   "uncertainHoles": [7]
 }
-There must be exactly 18 score entries. Use null for unreadable cells.`;
+There must be exactly 18 score entries. Use null for any unreadable or ambiguous cell.`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },

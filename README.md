@@ -1,19 +1,16 @@
-# Colonial Golf Match v1.5
+# Colonial Golf Match v1.6
 
-Version 1.4 returns to full-image vision reading instead of cropping the scorecard into fixed cells. The model reads each player as a structured Hole 1 through Hole 18 table using the printed hole columns as anchors.
+Version 1.6 is an OCR-focused release. No betting logic was changed.
 
-Key OCR rules:
+## v1.6 Conservative OCR
 
-- Never shift a score left or right.
-- Return a blank/null value if an exact hole cell is unclear.
-- Never invent a final-hole score to complete a row.
-- Individual test-group scores are validated as 1-7; a 1 remains highlighted for confirmation.
-- Only cells marked uncertain by the first pass receive a second verification pass.
-- The existing manual correction, calculated 1 Ball / 2 Ball / 2+3 Ball audit, running match, and matchup screens remain available.
+- Uses one independent vision read per player row.
+- Uses the higher-accuracy `gpt-4.1` model by default (override with `OPENAI_VISION_MODEL` in Netlify if desired).
+- Does not run a second automatic correction pass.
+- Explicitly forbids shifting scores left/right or smoothing repeated 3/4/5 patterns.
+- Ambiguous cells should be returned as `null` and highlighted for one-tap correction instead of guessed.
+- Keeps the existing score review, original photo, calculated 1 Ball / 2 Ball / 2+3 Ball audit, and match logic unchanged.
 
-The first player listed on each confirmed card remains the Team name for that round.
+## Testing goal
 
-
-## v1.5 OCR strategy
-
-The reader first identifies the handwritten player names, then makes a separate vision request for each player row. Each request sees the full scorecard for context but is instructed to read only one named row from Hole 1 through Hole 18. This is intended to prevent vertical drift from Player 1 into Player 2/3/4.
+Use the same real scorecard photos across releases and count the number of manual corrections needed. The target is fewer confident errors, even if the first read contains more highlighted blanks.

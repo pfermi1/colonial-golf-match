@@ -46,7 +46,7 @@
 
       <label class="upload" for="scorecardFile">
         <strong>Take or choose scorecard photo</strong>
-        <span>Use a straight, well-lit picture. Version 1.5 identifies the player names first, then reads each player row independently so later rows cannot drift into neighboring players.</span>
+        <span>Use a straight, well-lit picture. Version 1.6 uses one conservative read per player row. If a digit is ambiguous, the app leaves that hole blank/highlighted instead of guessing.</span>
       </label>
       <input id="scorecardFile" type="file" accept="image/*" capture="environment">
 
@@ -96,7 +96,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 1.5 · Independent Player-Row OCR</footer>
+    <footer class="version-footer">Version 1.6 · Conservative OCR</footer>
   </main>
 
   <dialog id="photoDialog">
