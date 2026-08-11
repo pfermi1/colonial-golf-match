@@ -4,7 +4,22 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
 const BOX_SCALE = 1000;
-const TEMPLATE_PATH = path.join(__dirname, 'assets', 'colonial-template-card.jpg');
+const TEMPLATE_FILENAME = 'colonial-template-card.jpg';
+
+function resolveTemplatePath() {
+  const candidates = [
+    path.join(__dirname, 'assets', TEMPLATE_FILENAME),
+    path.join(process.cwd(), 'netlify', 'functions', 'assets', TEMPLATE_FILENAME),
+    process.env.LAMBDA_TASK_ROOT ? path.join(process.env.LAMBDA_TASK_ROOT, 'netlify', 'functions', 'assets', TEMPLATE_FILENAME) : null,
+    process.env.LAMBDA_TASK_ROOT ? path.join(process.env.LAMBDA_TASK_ROOT, 'assets', TEMPLATE_FILENAME) : null
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  throw new Error(`Colonial template asset was not bundled with the Netlify Function. Checked: ${candidates.join(', ')}`);
+}
 
 exports.handler = async function handler(event) {
   if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
@@ -19,7 +34,7 @@ exports.handler = async function handler(event) {
     }
 
     const playerCount = [4, 5].includes(Number(expectedPlayers)) ? Number(expectedPlayers) : 4;
-    const templateBuffer = fs.readFileSync(TEMPLATE_PATH);
+    const templateBuffer = fs.readFileSync(resolveTemplatePath());
     const templateDataUrl = `data:image/jpeg;base64,${templateBuffer.toString('base64')}`;
     const originalBuffer = dataUrlToBuffer(imageDataUrl);
 
@@ -83,7 +98,7 @@ exports.handler = async function handler(event) {
       players.push({ name: item.name, scores, uncertainHoles });
     }
 
-    return reply(200, { players, ocrMode: 'colonial-template-v1.2' });
+    return reply(200, { players, ocrMode: 'colonial-template-v1.2.1' });
   } catch (error) {
     console.error(error);
     return reply(500, { error: friendlyError(error) });

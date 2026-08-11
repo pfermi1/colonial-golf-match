@@ -1,6 +1,6 @@
-# Colonial Golf Match — v1.2
+# Colonial Golf Match — v1.2.1
 
-Version 1.2 changes the OCR pipeline from free-form grid discovery to **template-guided alignment** using the Colonial scorecard image supplied during testing.
+Version 1.2.1 keeps the OCR pipeline from free-form grid discovery to **template-guided alignment** using the Colonial scorecard image supplied during testing.
 
 ## What changed
 
@@ -28,3 +28,10 @@ For best results, photograph the whole scorecard in landscape, directly overhead
 ## Deployment
 
 Deploy from GitHub to Netlify. Keep `OPENAI_API_KEY` configured as a secret environment variable. The bundled template lives at `netlify/functions/assets/colonial-template-card.jpg` and must be uploaded with the rest of the project.
+
+
+## v1.2.1 hotfix
+
+- Explicitly bundles `netlify/functions/assets/**` with Netlify Functions.
+- Resolves the Colonial template image from multiple safe runtime locations.
+- Updates the visible version label so deployment can be verified on the phone.
