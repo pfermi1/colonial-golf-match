@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 3.9 · Warped Row Scan</p>
+      <p class="help compact-help">Version 4.0 · Handwritten-Name Row Lock</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 3.9 · Warped Row Scan</footer>
+    <footer class="version-footer">Version 4.0 · Handwritten-Name Row Lock</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Warped Row-Scan Crops</h2>
+      <h2>18 Handwritten-Name Row-Locked Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v3.9 keeps the perspective-straightened card and stabilized X geometry, then scans the normalized card below the transformed player name to locate the actual handwritten score row. Still no digit OCR.</p>
+  <p>v4.0 keeps the perspective-straightened card and stabilized X geometry, then locks score-row Y directly to the transformed handwritten player-name center. No PAR/HANDICAP or darkness-based row scan. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

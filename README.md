@@ -246,3 +246,15 @@ Changes:
 - Use that scanned Y position for all 18 crops.
 
 Acceptance criterion: the 18 crops should land on Paul's handwritten row rather than blank grid, HANDICAP, or PAR rows while preserving the non-drifting X geometry.
+
+## v4.0 Handwritten-Name Row Lock
+Still no digit OCR.
+
+Changes:
+- Keep four-corner perspective normalization.
+- Keep v3.9 X geometry unchanged.
+- Remove the dark-content row scanner entirely.
+- Transform the detected handwritten player-name center into the normalized card.
+- Use that exact transformed Y as the score-row center for all 18 crops.
+
+Acceptance criterion: all 18 crops should land on the same handwritten player row as the detected name, without selecting printed HANDICAP/PAR/yardage rows.

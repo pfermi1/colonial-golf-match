@@ -46,7 +46,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.corners || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'warped-row-scan-v3.9',
+        ocrMode: 'handwritten-name-row-lock-v4.0',
         playerName: geometry.name || '',
         message: 'Could not confidently locate all four card corners and the first player name.',
         debug: { geometry, cells: [] }
@@ -79,21 +79,17 @@ exports.handler = async function handler(event) {
 
     const nameCenterWarp = applyHomography(warp.srcToDstH, nameCenterSrc.x, nameCenterSrc.y);
 
-    // v3.9 key change:
-    // Keep the perspective-normalized card and stabilized X geometry, but stop guessing
-    // the Y offset. Scan the warped card below the transformed player-name center and
-    // choose the first horizontal score row with substantial handwritten dark content.
+    // v4.0 key change:
+    // Lock the score-row Y directly to the transformed handwritten player-name box.
+    // No row scan, no PAR/HANDICAP inference, no darkness heuristic.
     const transformedNameCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
 
-    const rowScan = await locateHandwrittenScoreRow(
-      warp.buffer,
-      transformedNameCenterY,
-      WARP_WIDTH,
-      WARP_HEIGHT
-    );
+    // Project the exact player-name row horizontally across the normalized card.
+    const rowCenterY = transformedNameCenterY;
 
-    const rowCenterY = rowScan.rowCenterY;
-    const rowCropHeight = 48;
+    // Use a slightly taller crop so the complete handwritten digit is visible while
+    // staying centered on the player's name row.
+    const rowCropHeight = 56;
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, WARP_HEIGHT - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, WARP_HEIGHT);
 
@@ -136,12 +132,12 @@ exports.handler = async function handler(event) {
       .toBuffer();
 
     return reply(200, {
-      ocrMode: 'warped-row-scan-v3.9',
+      ocrMode: 'handwritten-name-row-lock-v4.0',
       playerName: geometry.name || '',
       debug: {
         geometry,
         transformedNameCenterY,
-        rowScan,
+        rowLockMethod: 'transformed-handwritten-name-center',
         rowCenterY,
         rowCropHeight,
         cropWidth,
@@ -151,11 +147,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.9 warped-row-scan failure:', error);
+    console.error('v4.0 name-row-lock failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.9 warped-row-scan diagnostic failed.',
+      error: error?.message || 'v4.0 name-row-lock diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'warped-row-scan-v3.9'
+      ocrMode: 'handwritten-name-row-lock-v4.0'
     });
   }
 };
@@ -508,7 +504,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.9 geometry locator returned an unreadable response.');
+    throw new Error('The v4.0 geometry locator returned an unreadable response.');
   }
 }
 
