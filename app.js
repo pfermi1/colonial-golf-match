@@ -160,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the first handwritten player row and building 18 geometry crops...';
+  status.textContent = 'Finding the handwritten player name, locking its score-row centerline, and building 18 crops...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',

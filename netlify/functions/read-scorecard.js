@@ -17,7 +17,6 @@ exports.handler = async function handler(event) {
     }
 
     const inputBuffer = dataUrlToBuffer(imageDataUrl);
-
     const normalizedBuffer = await sharp(inputBuffer)
       .rotate()
       .resize({ width: 2200, height: 2200, fit: 'inside', withoutEnlargement: true })
@@ -29,14 +28,15 @@ exports.handler = async function handler(event) {
     const height = meta.height;
     const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
 
-    // ONE vision call only: locate first visible handwritten player row.
-    const geometry = await locateFirstPlayerRow(apiKey, normalizedDataUrl);
+    // ONE vision call only:
+    // identify the first player name, its name box, and the exact handwritten row centerline.
+    const geometry = await locateFirstPlayerRowByName(apiKey, normalizedDataUrl);
 
     if (!geometry.front || !geometry.back) {
       return reply(200, {
-        ocrMode: 'geometry-only-v2.5',
+        ocrMode: 'name-anchored-row-geometry-v2.6',
         playerName: geometry.name || '',
-        message: 'Could not confidently locate both nine-hole score regions.',
+        message: 'Could not confidently locate the handwritten score row.',
         debug: { geometry, cells: [] }
       });
     }
@@ -58,7 +58,7 @@ exports.handler = async function handler(event) {
         const rawW = Math.max(1, x1 - x0);
 
         const trimX = Math.max(1, Math.floor(rawW * 0.05));
-        const trimY = Math.max(1, Math.floor(nineHeight * 0.05));
+        const trimY = Math.max(1, Math.floor(nineHeight * 0.04));
 
         const left = Math.min(nineWidth - 1, x0 + trimX);
         const top = Math.min(nineHeight - 1, trimY);
@@ -80,58 +80,54 @@ exports.handler = async function handler(event) {
     }
 
     return reply(200, {
-      ocrMode: 'geometry-only-v2.5',
+      ocrMode: 'name-anchored-row-geometry-v2.6',
       playerName: geometry.name || '',
-      debug: {
-        geometry,
-        cells
-      }
+      debug: { geometry, cells }
     });
   } catch (error) {
-    console.error('v2.5 geometry-only failure:', error);
+    console.error('v2.6 geometry failure:', error);
     return reply(500, {
       error: error?.message || 'Geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'geometry-only-v2.5'
+      ocrMode: 'name-anchored-row-geometry-v2.6'
     });
   }
 };
 
-async function locateFirstPlayerRow(apiKey, imageDataUrl) {
+async function locateFirstPlayerRowByName(apiKey, imageDataUrl) {
   const prompt = `
-You are locating ONE handwritten player score row on a Colonial Golf Club paper scorecard.
+Geometry-only task on a photographed Colonial Golf Club scorecard.
 
-This is a GEOMETRY-ONLY task. Do not transcribe scores.
+The photo is preferably landscape:
+- Hole 1 is on the left.
+- Hole 18 is on the right.
+- handwritten player names are on the left side of their score rows.
+- player score rows are below the printed HANDICAP row and above the printed PAR row.
 
-Use THIS image only.
+Find the FIRST handwritten player name that has handwritten scores on the same row.
 
-Preferred orientation:
-- scorecard is landscape;
-- Hole 1 is at the left;
-- Hole 18 is at the right;
-- player names are at the left of handwritten rows;
-- handwritten player rows are below the printed HANDICAP row and above the printed PAR row.
-
-Locate the FIRST handwritten player row that actually contains handwritten scores.
+Then use the VERTICAL CENTER of that handwritten NAME as the anchor for the player's score row.
+The Hole 1-9 and Hole 10-18 boxes must be centered on exactly the same handwritten row as the name.
 
 Return:
-1) the visible handwritten player name;
-2) a tight bounding box around ONLY that player's handwritten Hole 1-9 score cells;
-3) a tight bounding box around ONLY that same player's handwritten Hole 10-18 score cells.
+- name: handwritten player name
+- nameBox: tight box around the handwritten name
+- front: tight box around only that player's handwritten Hole 1-9 score cells
+- back: tight box around only that player's handwritten Hole 10-18 score cells
 
 CRITICAL:
-- Do not select printed yardages.
+- The vertical centers of nameBox, front and back must be nearly identical.
+- Do not use the blank row above or below the player's writing.
 - Do not select the printed HANDICAP row.
 - Do not select the printed PAR row.
-- Do not select OUT, IN, TOT, HCP or NET.
-- Do not select background, table, knee, keyboard, or anything outside the card.
-- Front and back boxes must be on the SAME handwritten horizontal row.
-- Front box must be left of back box.
+- Do not select yardages, OUT, IN, TOT, HCP, NET, table, knee or background.
+- front must be left of back.
 - Coordinates are normalized integers 0-1000 relative to the full image.
 
 Return JSON only:
 {
   "name":"",
+  "nameBox":{"left":0,"top":0,"right":0,"bottom":0},
   "front":{"left":0,"top":0,"right":0,"bottom":0},
   "back":{"left":0,"top":0,"right":0,"bottom":0}
 }`;
@@ -139,25 +135,47 @@ Return JSON only:
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 400);
+  ], 500);
 
   const parsed = parseJson(extractOutputText(raw));
-  const front = normalizeBox(parsed?.front);
-  const back = normalizeBox(parsed?.back);
   const name = String(parsed?.name || '').trim();
+  const nameBox = normalizeBox(parsed?.nameBox);
+  let front = normalizeBox(parsed?.front);
+  let back = normalizeBox(parsed?.back);
 
-  if (!front || !back) return { name, front: null, back: null };
+  if (!nameBox || !front || !back) return { name, nameBox, front: null, back: null };
 
-  const sameRow = Math.abs(front.top - back.top) <= 35 &&
-                  Math.abs(front.bottom - back.bottom) <= 35;
+  // Name-anchored vertical correction:
+  // use the centerline of the handwritten name and force front/back to share it.
+  const nameCenter = (nameBox.top + nameBox.bottom) / 2;
+  const frontHeight = front.bottom - front.top;
+  const backHeight = back.bottom - back.top;
+  const rowHeight = Math.max(12, Math.min(70, (frontHeight + backHeight) / 2));
+
+  front = {
+    left: front.left,
+    right: front.right,
+    top: clamp(nameCenter - rowHeight / 2, 0, 999),
+    bottom: clamp(nameCenter + rowHeight / 2, 1, 1000)
+  };
+
+  back = {
+    left: back.left,
+    right: back.right,
+    top: clamp(nameCenter - rowHeight / 2, 0, 999),
+    bottom: clamp(nameCenter + rowHeight / 2, 1, 1000)
+  };
+
   const ordered = front.left < back.left;
-  const similarHeight = Math.abs((front.bottom-front.top) - (back.bottom-back.top)) <= 25;
+  const nameAligned =
+    Math.abs(((front.top + front.bottom) / 2) - nameCenter) <= 4 &&
+    Math.abs(((back.top + back.bottom) / 2) - nameCenter) <= 4;
 
-  if (!sameRow || !ordered || !similarHeight) {
-    return { name, front: null, back: null };
+  if (!ordered || !nameAligned) {
+    return { name, nameBox, front: null, back: null };
   }
 
-  return { name, front, back };
+  return { name, nameBox, front, back };
 }
 
 async function extractNormalizedBox(imageBuffer, imageWidth, imageHeight, box) {
@@ -180,7 +198,7 @@ function normalizeBox(box) {
   const bottom = Number(box.bottom);
   if (![left, top, right, bottom].every(Number.isFinite)) return null;
   if (left < 0 || top < 0 || right > 1000 || bottom > 1000) return null;
-  if (right - left < 30 || bottom - top < 8) return null;
+  if (right - left < 20 || bottom - top < 8) return null;
   return { left, top, right, bottom };
 }
 
@@ -217,7 +235,9 @@ function extractOutputText(response) {
   const parts = [];
   for (const item of response.output || []) {
     for (const content of item.content || []) {
-      if (content.type === 'output_text' && typeof content.text === 'string') parts.push(content.text);
+      if (content.type === 'output_text' && typeof content.text === 'string') {
+        parts.push(content.text);
+      }
     }
   }
   return parts.join('\n').trim();
@@ -227,6 +247,7 @@ function parseJson(text) {
   const cleaned = String(text || '').trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
+
   try {
     return JSON.parse(cleaned);
   } catch (_) {

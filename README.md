@@ -106,3 +106,10 @@ Acceptance criterion: each tile must show the correct handwritten score box for 
 
 ## v2.5.1
 Hotfix only. Removes stale JavaScript references to diagnostic panels deleted in v2.5, including `rawOcrPanel`, so Add scorecard can open the upload screen again. The v2.5 geometry-only server diagnostic is otherwise unchanged.
+
+## v2.6 Name-Anchored Row Geometry
+Still no digit OCR.
+
+The geometry locator now returns the handwritten player-name bounding box as well as the front/back score regions. The server mechanically forces both score regions to share the vertical centerline of that handwritten name.
+
+Acceptance criterion: using the same landscape Paul test photo, all 18 diagnostic tiles should contain Paul's handwritten score digits rather than an adjacent blank row.
