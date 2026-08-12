@@ -347,3 +347,15 @@ This build:
 - returns every crop to the browser and displays it on-screen.
 
 Acceptance criterion: every displayed tile must visibly contain the intended handwritten hole score for the correct player. Only after this is proven should digit recognition be re-enabled.
+
+## v5.7.1 Card-Template Geometry
+No score OCR.
+
+Key change:
+- Vision is no longer asked to locate player score rows.
+- Vision only finds the physical card rectangle and handwritten player names.
+- Four fixed Colonial player-row Y positions are then applied relative to the detected card.
+- Fixed Colonial Hole 1-18 X positions are applied relative to the same card.
+- The browser shows the detected card preview plus all generated player/hole crops.
+
+This tests the card itself as the coordinate system rather than the phone photograph or AI-estimated row positions.
