@@ -2,10 +2,10 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
-// v3.2 calibrated Colonial hole centers within the physical card rectangle.
-// These explicitly account for the OUT gap between 9 and 10 and the IN/TOT area after 18.
+// v3.5: preserve v3.4 Y and back-nine X exactly; shift only Holes 1-9 left by one normal front-nine column.
+// Ratios are relative to the detected physical scorecard rectangle, not the raw photo frame.
 const HOLE_X_RATIOS = [
-  0.160, 0.194, 0.228, 0.262, 0.296, 0.330, 0.364, 0.398, 0.432,
+  0.126, 0.160, 0.194, 0.228, 0.262, 0.296, 0.330, 0.364, 0.398,
   0.520, 0.554, 0.588, 0.622, 0.656, 0.690, 0.724, 0.758, 0.792
 ];
 
@@ -41,7 +41,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.cardBox || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'y-midpoint-colonial-x-v3.4',
+        ocrMode: 'front-nine-x-shift-v3.5',
         playerName: geometry.name || '',
         message: 'Could not confidently locate the card and first handwritten player name.',
         debug: { geometry, cells: [] }
@@ -112,7 +112,7 @@ exports.handler = async function handler(event) {
     }
 
     return reply(200, {
-      ocrMode: 'y-midpoint-colonial-x-v3.4',
+      ocrMode: 'front-nine-x-shift-v3.5',
       playerName: geometry.name || '',
       debug: {
         geometry,
@@ -126,11 +126,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.4 geometry failure:', error);
+    console.error('v3.5 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.4 geometry diagnostic failed.',
+      error: error?.message || 'v3.5 geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'y-midpoint-colonial-x-v3.4'
+      ocrMode: 'front-nine-x-shift-v3.5'
     });
   }
 };
@@ -271,7 +271,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.4 geometry locator returned an unreadable response.');
+    throw new Error('The v3.5 geometry locator returned an unreadable response.');
   }
 }
 

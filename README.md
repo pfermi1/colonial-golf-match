@@ -187,3 +187,14 @@ This is another Y-only diagnostic:
 - All Colonial X positions remain unchanged.
 
 Acceptance criterion: the 18 tiles should move onto Paul's handwritten score row. Only after Y is correct will horizontal fine-tuning resume.
+
+## v3.5 Front-Nine X Calibration
+Still no digit OCR.
+
+This is intentionally a surgical change:
+- v3.4 Y geometry is unchanged.
+- Holes 10-18 X geometry is unchanged.
+- Holes 1-9 are shifted left by one normal front-nine hole spacing (0.034 of the detected card width).
+- X ratios are applied relative to the detected physical scorecard rectangle, not the overall photo frame.
+
+Acceptance criterion: Hole 1 should show Paul's actual Hole 1 score, Hole 9 should show Paul's actual Hole 9 score rather than the OUT/37 total, and Holes 10-18 should remain correct.
