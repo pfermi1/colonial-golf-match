@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.9.2.2 startup
+showPanel(roundPanel); // v6.0.2 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.9.2.2 hotfix: invoke the native picker synchronously from the user gesture.
+  // v6.0.2 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.9.2.2 startup
+showPanel(roundPanel); // v6.0.2 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.9.2.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v6.0.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.9.2.2 startup
+showPanel(roundPanel); // v6.0.2 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v5.9.2.2 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.9.2.2 startup
+showPanel(roundPanel); // v6.0.2 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.9.2.2 startup
+showPanel(roundPanel); // v6.0.2 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -870,6 +870,10 @@ function renderCellDiagnostics(payload) {
 
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
+    if (debug.semanticMode) {
+      cellDiagnosticMeta.textContent = 'v6.0 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
+      return;
+    }
   const previewUrl = debug.normalizedCardDataUrl || '';
 
   if (cellDiagnosticMeta) {

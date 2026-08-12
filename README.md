@@ -422,3 +422,16 @@ Key change:
 - applies fixed player-row and hole-column positions relative to the normalized Colonial scorecard itself;
 - vision is used only to read the four handwritten player names;
 - the browser still shows all 72 crops for visual verification.
+
+## v6.0 Semantic Row Reading
+
+This is a deliberate reset of the score-reading pipeline.
+
+- Keeps full-card upright normalization.
+- Removes player-row X/Y calculations.
+- Removes 72 per-cell score crops.
+- Removes conventional OCR from score extraction.
+- Sends the normalized full card to GPT-5 vision.
+- Instructs the model to locate each handwritten player name and visually follow that same handwritten row across holes 1-18.
+- Printed yardages, handicaps, pars, ratings and totals are explicitly excluded.
+- Unreadable handwritten scores must return null.

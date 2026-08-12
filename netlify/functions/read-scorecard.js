@@ -162,133 +162,86 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: fixed Colonial template geometry on the NORMALIZED upright card.
-    // No more AI-generated row/column coordinates in v5.9.2.
-    //
-    // These ratios are calibrated to the normalized physical card itself,
-    // not to the original phone photograph.
-    //
-    // Main handwritten rows on this Colonial scorecard:
-    // Paul, Steve, Dec, Crain — top to bottom.
-    const PLAYER_ROW_CENTERS = [0.275, 0.306, 0.337, 0.368];
+    // Step 4: v6.0 semantic row reading.
+    // No X/Y geometry. No per-cell crops. No traditional OCR.
+    // Give the normalized full card to the vision model and ask it to reason
+    // from each handwritten player name across that SAME handwritten row.
+    const semanticPrompt = `
+You are reading ONE golf scorecard image.
 
-    // Hole columns are based on the actual Colonial layout:
-    // 9 front-nine cells, OUT gap, then 9 back-nine cells.
-    // The card is 1800 px wide after normalization.
-    const FRONT_LEFT = 0.185;
-    const FRONT_RIGHT = 0.487;
-    const BACK_LEFT = 0.530;
-    const BACK_RIGHT = 0.832;
+IMPORTANT:
+- Read HANDWRITING, not the printed course numbers.
+- Do NOT use printed yardages, handicaps, pars, tee ratings, totals, or other printed numbers as player scores.
+- Find the MAIN handwritten player block above the printed PAR row.
+- There are up to four handwritten player names, one per row.
+- For each player, start at that handwritten name and visually follow THE SAME HORIZONTAL HANDWRITTEN ROW to the right.
+- Read holes 1 through 9, skip the printed OUT/total column, then continue on that SAME row for holes 10 through 18.
+- A normal golf score is generally a single handwritten digit. If a mark is genuinely unreadable, use null rather than substituting nearby printed text.
+- Preserve the player order exactly as it appears top-to-bottom on the card.
+- Do not invent players from printed labels or the scorer/attest area.
 
-    const frontStep = (FRONT_RIGHT - FRONT_LEFT) / 9;
-    const backStep = (BACK_RIGHT - BACK_LEFT) / 9;
-
-    const holeCenters = [];
-    for (let i = 0; i < 9; i++) {
-      holeCenters.push(FRONT_LEFT + frontStep * (i + 0.5));
+Return JSON only, exactly this shape:
+{
+  "players": [
+    {
+      "name": "handwritten player name",
+      "scores": [18 values, each an integer 1-12 or null],
+      "uncertainHoles": [hole numbers that were unclear]
     }
-    for (let i = 0; i < 9; i++) {
-      holeCenters.push(BACK_LEFT + backStep * (i + 0.5));
-    }
+  ]
+}
 
-    // Names still come from the normalized card, but geometry does not.
-    const namesPrompt = `
-NAMES ONLY. Do not read any golf score digits.
-
-This is a normalized upright Colonial Golf Club scorecard.
-
-Read the handwritten player names in the MAIN player block above the printed PAR row.
-Return up to four names in top-to-bottom order.
-
-Do not include the handwritten scorer row below PAR.
-
-Return JSON only:
-{"names":["name1","name2","name3","name4"]}
+Before returning the JSON, silently verify:
+1. every score came from the same handwritten row as that player's name;
+2. no printed three-digit yardage or printed handicap/par number was used;
+3. each player has exactly 18 score entries;
+4. uncertain marks are null.
 `;
 
-    const namesText = extractOutputText(
-      await callVision(apiKey, namesPrompt, cardDataUrl, 450)
+    const semanticResponse = await callVision(
+      apiKey,
+      semanticPrompt,
+      cardDataUrl,
+      1800,
+      'gpt-5'
     );
-    const namesParsed = parseJson(namesText);
-    const names = Array.isArray(namesParsed?.names)
-      ? namesParsed.names.map(v => String(v || '').trim()).filter(Boolean).slice(0, 4)
-      : [];
 
-    debug.gridGeometryPass = namesText;
-    debug.grid = {
-      mode: 'fixed-colonial-template',
-      playerRowCenters: PLAYER_ROW_CENTERS,
-      holeCenters,
-      frontLeft: FRONT_LEFT,
-      frontRight: FRONT_RIGHT,
-      backLeft: BACK_LEFT,
-      backRight: BACK_RIGHT
-    };
+    const semanticText = extractOutputText(semanticResponse);
+    const parsed = parseJson(semanticText);
+    const rawPlayers = Array.isArray(parsed?.players) ? parsed.players : [];
 
-    const players = [];
+    const players = rawPlayers.slice(0, 4).map((player, index) => {
+      const scores = Array.isArray(player?.scores) ? player.scores.slice(0, 18) : [];
+      while (scores.length < 18) scores.push(null);
 
-    // Tight crop dimensions, still slightly generous for handwriting.
-    const cropW = 62;
-    const cropH = 54;
-
-    for (let pIndex = 0; pIndex < PLAYER_ROW_CENTERS.length; pIndex++) {
-      const rowCenterY = Math.round(PLAYER_ROW_CENTERS[pIndex] * NORMALIZED_HEIGHT);
-      const cells = [];
-
-      for (let h = 0; h < 18; h++) {
-        const cx = Math.round(holeCenters[h] * NORMALIZED_WIDTH);
-
-        const left = clamp(Math.round(cx - cropW / 2), 0, NORMALIZED_WIDTH - 1);
-        const top = clamp(Math.round(rowCenterY - cropH / 2), 0, NORMALIZED_HEIGHT - 1);
-        const right = clamp(left + cropW, left + 1, NORMALIZED_WIDTH);
-        const bottom = clamp(top + cropH, top + 1, NORMALIZED_HEIGHT);
-
-        const cellBuffer = await sharp(cardBuffer)
-          .extract({
-            left,
-            top,
-            width: right - left,
-            height: bottom - top
-          })
-          .resize({
-            width: 220,
-            height: 220,
-            fit: 'contain',
-            background: '#ffffff'
-          })
-          .jpeg({ quality: 96 })
-          .toBuffer();
-
-        cells.push({
-          hole: h + 1,
-          left, top, right, bottom,
-          imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
-        });
-      }
-
-      const name = names[pIndex] || `Player ${pIndex + 1}`;
-
-      debug.templateRows.push({
-        name,
-        playerIndex: pIndex + 1,
-        rowCenterY,
-        rowYRatio: PLAYER_ROW_CENTERS[pIndex],
-        cropW,
-        cropH,
-        cells
+      const cleanedScores = scores.map(value => {
+        if (value === null || value === undefined || value === '') return null;
+        const n = Number(value);
+        return Number.isInteger(n) && n >= 1 && n <= 12 ? n : null;
       });
 
-      players.push({
-        name,
-        scores: Array(18).fill(null),
-        uncertainHoles: Array.from({ length: 18 }, (_, i) => i + 1)
-      });
-    }
+      const modelUncertain = Array.isArray(player?.uncertainHoles)
+        ? player.uncertainHoles.map(Number).filter(h => Number.isInteger(h) && h >= 1 && h <= 18)
+        : [];
+
+      const nullHoles = cleanedScores
+        .map((v, i) => v === null ? i + 1 : null)
+        .filter(Boolean);
+
+      return {
+        name: String(player?.name || `Player ${index + 1}`).trim(),
+        scores: cleanedScores,
+        uncertainHoles: [...new Set([...modelUncertain, ...nullHoles])].sort((a, b) => a - b)
+      };
+    });
+
+    debug.semanticRowRead = semanticText;
+    debug.semanticMode = true;
 
     return reply(200, {
       players,
       debug,
-      ocrMode: 'fixed-template-geometry-v5.9.2'
+      ocrMode: 'semantic-row-reading-v6.0'
     });
 
   } catch (error) {
