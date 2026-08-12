@@ -286,3 +286,13 @@ Two-pass whole-card reader:
 - Pass 2 independently re-reads the same image and corrects the first pass.
 - Handwritten totals are arithmetic cross-checks.
 - Unresolved or total-inconsistent holes are marked uncertain for review.
+
+## v5.2 Player-Row Vision
+Architecture refinement:
+- Pass 1 uses the whole card only to locate handwritten player names and generous row boxes.
+- The server crops each full handwritten row and stacks the rows into a clean high-resolution composite.
+- Pass 2 reads only those isolated handwritten rows.
+- Handwritten OUT / IN / TOTAL values are arithmetic cross-checks.
+- Total mismatches are marked uncertain for review rather than silently accepted.
+
+This deliberately avoids tiny-cell OCR while also removing distracting printed PAR/HANDICAP/yardage rows from the score-reading pass.
