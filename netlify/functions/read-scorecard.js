@@ -14,27 +14,22 @@ exports.handler = async function(event) {
       return reply(400, { error: 'A scorecard image is required.' });
     }
 
-    // v5.3 deliberately sends the ORIGINAL uploaded image directly to the model.
-    // No resize, crop, warp, OCR, or local image preprocessing.
+    // PASS 1: full-photo transcription.
     const pass1Prompt = `
 Read this exact uploaded Colonial Golf Club scorecard photograph directly.
 
-Important:
-- Use ONLY what is visible in THIS photo.
-- Do not assume any player's name or score from prior images.
-- Do not use printed numbers as player scores.
-- The handwritten player block is the only source of player scores.
-- Ignore printed PAR, HANDICAP, tee yardages, printed hole numbers, OUT, IN, TOT, HCP, NET.
-- Ignore handwritten OUT, IN, and TOTAL as hole values; read them separately as cross-checks.
-- A circled birdie means read the digit inside the circle.
-- Scores are normally 1-7. If a handwritten digit is not clear enough, return null instead of guessing.
-- Return players in top-to-bottom order.
+Use only THIS image. Identify every handwritten player row and read exactly 18 handwritten hole scores per player.
 
-For every handwritten player:
-1) read the handwritten name;
-2) read exactly 18 handwritten hole scores, holes 1-9 then holes 10-18;
-3) separately read handwritten OUT, IN, and TOTAL if visible;
-4) list uncertain hole numbers in uncertainHoles.
+Rules:
+- Ignore ALL printed numbers and printed labels: PAR, HANDICAP, tee yardages, hole numbers, OUT, IN, TOT, HCP, NET.
+- Only handwritten player names and handwritten player score rows count.
+- Read holes 1-9, skip handwritten OUT subtotal, then holes 10-18.
+- Read handwritten OUT / IN / TOTAL separately as cross-checks.
+- Circled birdie: read the digit inside the circle.
+- Scores are normally 1-7.
+- If a handwritten digit is unclear, return null instead of guessing.
+- A score of 1 is allowed, but must be uncertain.
+- Return players top-to-bottom.
 
 Return JSON only:
 {
@@ -49,39 +44,33 @@ Return JSON only:
     }
   ]
 }
-
-Requirements:
-- scores must contain exactly 18 entries per player.
-- uncertainHoles is 1-based.
-- A score of 1 is allowed, but always mark it uncertain.
-- Never invent placeholder players.
 `;
 
     const pass1Text = extractOutputText(await callVision(apiKey, pass1Prompt, imageDataUrl, 1800));
     const pass1 = parseJson(pass1Text);
 
+    // PASS 2: independent full-photo verification.
     const pass2Prompt = `
-You are independently verifying a transcription of the SAME original scorecard photograph.
+Independently re-read the SAME original Colonial Golf Club scorecard photograph.
 
-Candidate transcription:
+Candidate first reading:
 ${JSON.stringify(pass1)}
 
-Re-read the ORIGINAL photograph yourself. Do not merely repeat the candidate.
+Do not simply repeat the candidate. Re-check every handwritten player name and every handwritten hole score.
 
-Verification rules:
-- Only handwritten player names and handwritten player score rows count.
-- Ignore printed PAR, HANDICAP, tee yardages, printed hole numbers, OUT, IN, TOT, HCP, NET.
+Rules:
+- Ignore ALL printed PAR, HANDICAP, yardages, tee rows, hole numbers, OUT/IN/TOT/HCP/NET.
+- Only handwritten player rows count.
 - Handwritten OUT / IN / TOTAL are cross-checks only.
-- Re-check every player name and every one of the 18 handwritten hole scores.
-- If a candidate value does not visually match the handwriting, correct it.
-- If a handwritten digit is not clear enough, return null and mark that hole uncertain.
-- Do not "smooth" values toward likely golf scores and do not fill uncertain cells with 4s.
-- Circled birdies: read the digit inside the circle.
-- Scores are normally 1-7. A 1 must be uncertain.
-- Use handwritten OUT / IN / TOTAL to challenge the candidate arithmetic, but never force a digit just to make totals match.
-- Return players top-to-bottom as seen in this exact image.
+- If a candidate value does not visually match, correct it.
+- If still unclear, return null and mark that hole uncertain.
+- Do not "smooth" values toward typical golf scores.
+- Do not fill uncertain cells with 4s.
+- Circled birdie: read the digit inside the circle.
+- Scores normally 1-7; a 1 must be uncertain.
+- Return players top-to-bottom.
 
-Return FINAL corrected JSON only:
+Return FINAL JSON only:
 {
   "players": [
     {
@@ -99,13 +88,74 @@ Return FINAL corrected JSON only:
     const pass2Text = extractOutputText(await callVision(apiKey, pass2Prompt, imageDataUrl, 2000));
     const pass2 = parseJson(pass2Text);
 
-    const players = normalizeAndValidate(pass2?.players);
+    // PASS 3: hole-by-hole adjudication. This is the key v5.4 change.
+    // It sees both prior reads and must explicitly adjudicate every individual hole.
+    const adjudicationPrompt = `
+You are the FINAL adjudicator for the SAME original Colonial Golf Club scorecard photograph.
+
+First reading:
+${JSON.stringify(pass1)}
+
+Second reading:
+${JSON.stringify(pass2)}
+
+Your task is NOT to create another general transcription.
+Instead, adjudicate EVERY PLAYER and EVERY HOLE 1-18 one by one from the original photograph.
+
+For each hole:
+- Compare the first and second readings.
+- Look directly at the corresponding handwritten box in the original photo.
+- Return the digit only if the handwriting supports it.
+- If the two readings disagree, carefully inspect that exact hole.
+- If the digit is still ambiguous, return null and mark that hole uncertain.
+- NEVER choose a value merely because it makes the total work.
+- NEVER substitute the printed PAR or HANDICAP.
+- NEVER default to 4.
+- Circled birdie: ignore circle, read the digit inside.
+
+Use handwritten OUT / IN / TOTAL only as secondary arithmetic evidence:
+- They can alert you that one or more hole values may be wrong.
+- They must NEVER force an unclear hole to a specific digit.
+- If arithmetic still disagrees after visual inspection, leave the questionable hole(s) uncertain.
+
+Return only the final adjudicated JSON:
+{
+  "players": [
+    {
+      "name": "string",
+      "scores": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "handwrittenOut": null,
+      "handwrittenIn": null,
+      "handwrittenTotal": null,
+      "uncertainHoles": []
+    }
+  ]
+}
+
+Requirements:
+- Exactly 18 score entries per player.
+- Scores normally 1-7.
+- Any null must be uncertain.
+- Any 1 must be uncertain.
+- Return players top-to-bottom as actually seen.
+`;
+
+    const adjudicationText = extractOutputText(await callVision(
+      apiKey,
+      adjudicationPrompt,
+      imageDataUrl,
+      2200
+    ));
+
+    const adjudicated = parseJson(adjudicationText);
+    const players = normalizeAndValidate(adjudicated?.players);
 
     return reply(200, {
       players,
       debug: {
         firstPass: pass1Text,
         verificationPass: pass2Text,
+        adjudicationPass: adjudicationText,
         arithmetic: players.map(p => ({
           name: p.name,
           computedOut: sumNine(p.scores, 0),
@@ -116,15 +166,15 @@ Return FINAL corrected JSON only:
           handwrittenTotal: p.handwrittenTotal
         }))
       },
-      ocrMode: 'original-photo-two-pass-v5.3'
+      ocrMode: 'original-photo-adjudicated-v5.4'
     });
 
   } catch (error) {
-    console.error('v5.3 original-photo read failure:', error);
+    console.error('v5.4 adjudication failure:', error);
     return reply(500, {
-      error: error?.message || 'Original-photo reading failed.',
+      error: error?.message || 'Original-photo adjudication failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'original-photo-two-pass-v5.3'
+      ocrMode: 'original-photo-adjudicated-v5.4'
     });
   }
 };
@@ -154,11 +204,11 @@ function normalizeAndValidate(src) {
     const handwrittenIn = validTotal(item?.handwrittenIn);
     const handwrittenTotal = validTotal(item?.handwrittenTotal);
 
+    // Arithmetic mismatches mark the relevant section uncertain, but NEVER rewrite scores.
     const out = sumNine(scores, 0);
     const inn = sumNine(scores, 9);
     const total = sumAll(scores);
 
-    // Arithmetic mismatch is a warning only; it does not rewrite scores.
     if (handwrittenOut != null && out != null && handwrittenOut !== out) {
       for (let h = 1; h <= 9; h++) uncertain.add(h);
     }
@@ -242,7 +292,7 @@ function parseJson(text) {
     const a = c.indexOf('{');
     const b = c.lastIndexOf('}');
     if (a >= 0 && b > a) return JSON.parse(c.slice(a, b + 1));
-    throw new Error('The original-photo reader returned an unreadable response.');
+    throw new Error('The adjudication reader returned an unreadable response.');
   }
 }
 

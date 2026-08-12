@@ -303,3 +303,13 @@ Major simplification:
 - Pass 1 transcribes handwritten player names, 18 scores, and handwritten totals.
 - Pass 2 independently re-reads the same original photo and corrects the first pass.
 - Arithmetic mismatches only mark cells uncertain; they never force score changes.
+
+## v5.4 Hole-by-Hole Adjudication
+Accuracy-focused refinement of the v5.3 original-photo approach.
+
+- Pass 1: full-photo transcription.
+- Pass 2: independent full-photo verification.
+- Pass 3: final hole-by-hole adjudication using both prior reads plus the original photo.
+- The adjudicator must inspect every individual hole and return null when still ambiguous.
+- Handwritten totals are secondary evidence only and never force a digit.
+- Arithmetic mismatches flag review cells but never rewrite scores.
