@@ -313,3 +313,11 @@ Accuracy-focused refinement of the v5.3 original-photo approach.
 - The adjudicator must inspect every individual hole and return null when still ambiguous.
 - Handwritten totals are secondary evidence only and never force a digit.
 - Arithmetic mismatches flag review cells but never rewrite scores.
+
+## v5.5 Isolated-Cell Vision
+New architecture:
+- Pass 1 reads no scores; it only locates the physical card and handwritten player rows.
+- The server creates large isolated crops for each of the 18 hole cells for every player.
+- All labeled cells are assembled into a clean diagnostic composite.
+- Pass 2 sees both the original card and the enlarged isolated-cell composite.
+- The reader must return null when a crop does not clearly contain one handwritten digit.
