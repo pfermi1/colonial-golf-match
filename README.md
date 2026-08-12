@@ -398,3 +398,17 @@ Instead of fixed row/column template ratios:
 - the browser shows the resulting 72 cell crops.
 
 Acceptance criterion: every tile should contain exactly one handwritten score from the correct player/hole.
+
+## v5.9.1 Three-Anchor Grid
+No score OCR.
+
+Key change:
+- keeps successful upright normalization and four detected player rows;
+- no longer asks vision for 18 individual hole centers;
+- asks only for three printed-grid anchors:
+  - left boundary of Hole 1,
+  - separator after Hole 9 / before OUT,
+  - right boundary of Hole 18;
+- derives all 18 hole centers mathematically from those anchors.
+
+This reduces the fragile coordinate response from 18 X values to only 3 structural landmarks.

@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'grid-derived-geometry-v5.9'
+        ocrMode: 'three-anchor-grid-v5.9.1'
       });
     }
 
@@ -162,8 +162,8 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: derive actual score grid geometry from the normalized card.
-    // No score transcription; only boundaries and player names.
+    // Step 4: derive player rows plus only THREE horizontal anchors.
+    // We no longer ask vision for 18 individual column centers.
     const gridPrompt = `
 GEOMETRY ONLY. Do not read any handwritten score digits.
 
@@ -174,15 +174,18 @@ Locate the MAIN handwritten player score grid ABOVE the printed PAR row.
 Return:
 1) the four horizontal player-row bands, top-to-bottom;
 2) the handwritten player names for those rows;
-3) the 18 hole-column centers, left-to-right, EXCLUDING the OUT and IN/TOTAL columns.
+3) exactly three X anchors based on the actual printed grid:
+   - frontLeft: the LEFT boundary of Hole 1;
+   - outSeparator: the vertical separator immediately AFTER Hole 9 / BEFORE the OUT column;
+   - backRight: the RIGHT boundary of Hole 18.
 
 Use the actual printed grid lines on THIS image.
 
 Important:
 - Do not use printed handicap or par rows.
-- Do not include OUT between holes 9 and 10.
-- Do not include IN/TOT/HCP/NET after hole 18.
-- The player rows must correspond to the four handwritten player rows above PAR.
+- The four player rows must correspond to the four handwritten rows above PAR.
+- Do not include OUT as a hole.
+- Do not include IN/TOT/HCP/NET after Hole 18.
 
 Coordinates are normalized integers 0-1000 relative to THIS normalized card.
 
@@ -194,30 +197,40 @@ Return JSON only:
     {"name":"string","top":0,"bottom":0},
     {"name":"string","top":0,"bottom":0}
   ],
-  "holeCenters":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  "anchors":{
+    "frontLeft":0,
+    "outSeparator":0,
+    "backRight":0
+  }
 }
 `;
 
     const gridText = extractOutputText(
-      await callVision(apiKey, gridPrompt, cardDataUrl, 1100)
+      await callVision(apiKey, gridPrompt, cardDataUrl, 1000)
     );
     debug.gridGeometryPass = gridText;
 
     const gridParsed = parseJson(gridText);
     const rows = normalizeRows(gridParsed?.playerRows);
-    const holeCenters = normalizeCenters(gridParsed?.holeCenters);
+    const anchors = normalizeAnchors(gridParsed?.anchors);
+
+    let holeCenters = [];
+    if (anchors) {
+      holeCenters = deriveHoleCenters(anchors);
+    }
 
     debug.grid = {
       rows,
+      anchors,
       holeCenters
     };
 
-    if (rows.length !== 4 || holeCenters.length !== 18) {
+    if (rows.length !== 4 || !anchors || holeCenters.length !== 18) {
       return reply(200, {
         players: [],
         debug,
-        warning: `Grid geometry incomplete: ${rows.length} player rows, ${holeCenters.length} hole centers.`,
-        ocrMode: 'grid-derived-geometry-v5.9'
+        warning: `Grid geometry incomplete: ${rows.length} player rows, anchors ${anchors ? 'ok' : 'missing'}.`,
+        ocrMode: 'three-anchor-grid-v5.9.1'
       });
     }
 
@@ -288,15 +301,15 @@ Return JSON only:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'grid-derived-geometry-v5.9'
+      ocrMode: 'three-anchor-grid-v5.9.1'
     });
 
   } catch (error) {
-    console.error('v5.9 grid-derived geometry failure:', error);
+    console.error('v5.9.1 three-anchor grid failure:', error);
     return reply(500, {
       error: error?.message || 'Grid-derived geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'grid-derived-geometry-v5.9'
+      ocrMode: 'three-anchor-grid-v5.9.1'
     });
   }
 };
@@ -343,20 +356,48 @@ function normalizeRows(src) {
   return rows.slice(0, 4);
 }
 
-function normalizeCenters(src) {
-  if (!Array.isArray(src)) return [];
+function normalizeAnchors(src) {
+  if (!src || typeof src !== 'object') return null;
 
-  const centers = src
-    .map(Number)
-    .filter(v => Number.isFinite(v) && v >= 0 && v <= 1000);
+  const frontLeft = Number(src.frontLeft);
+  const outSeparator = Number(src.outSeparator);
+  const backRight = Number(src.backRight);
 
-  if (centers.length !== 18) return [];
+  if (![frontLeft, outSeparator, backRight].every(Number.isFinite)) return null;
+  if (frontLeft < 0 || backRight > 1000) return null;
+  if (!(frontLeft < outSeparator && outSeparator < backRight)) return null;
 
-  for (let i = 1; i < centers.length; i++) {
-    if (centers[i] <= centers[i - 1]) return [];
+  // Each nine-hole section must have meaningful width.
+  if (outSeparator - frontLeft < 120) return null;
+  if (backRight - outSeparator < 120) return null;
+
+  return { frontLeft, outSeparator, backRight };
+}
+
+function deriveHoleCenters(anchors) {
+  const { frontLeft, outSeparator, backRight } = anchors;
+
+  // Front nine: divide Hole 1 left boundary -> Hole 9 right boundary into 9 equal cells.
+  // The OUT column begins at outSeparator, so infer Hole 9 right boundary one hole-cell width before it.
+  const frontSpanToOut = outSeparator - frontLeft;
+  const frontCell = frontSpanToOut / 10; // 9 holes + 1 OUT-width slot
+  const frontRight = outSeparator - frontCell;
+
+  // Back nine: infer Hole 10 left boundary one OUT-width slot after separator.
+  const backSpanFromOut = backRight - outSeparator;
+  const backCell = backSpanFromOut / 10; // 1 gap/OUT-width + 9 holes
+  const backLeft = outSeparator + backCell;
+
+  const centers = [];
+
+  for (let i = 0; i < 9; i++) {
+    centers.push(frontLeft + frontCell * (i + 0.5));
+  }
+  for (let i = 0; i < 9; i++) {
+    centers.push(backLeft + backCell * (i + 0.5));
   }
 
-  return centers;
+  return centers.map(v => Math.round(v));
 }
 
 function normBoxToPixels(box, width, height) {

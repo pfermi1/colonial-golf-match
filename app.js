@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.9 startup
+showPanel(roundPanel); // v5.9.1 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.9 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.9.1 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.9 startup
+showPanel(roundPanel); // v5.9.1 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.9 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.9.1 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.9 startup
+showPanel(roundPanel); // v5.9.1 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v5.9 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.9 startup
+showPanel(roundPanel); // v5.9.1 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.9 startup
+showPanel(roundPanel); // v5.9.1 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -876,15 +876,17 @@ function renderCellDiagnostics(payload) {
     const grid = debug.grid || {};
     const rowCount = Array.isArray(grid.rows) ? grid.rows.length : 0;
     const holeCount = Array.isArray(grid.holeCenters) ? grid.holeCenters.length : 0;
+    const anchors = grid.anchors || null;
 
     if (!debug.cardBox) {
       cellDiagnosticMeta.textContent = 'Physical card detection failed.';
-    } else if (rowCount !== 4 || holeCount !== 18) {
+    } else if (rowCount !== 4 || holeCount !== 18 || !anchors) {
       cellDiagnosticMeta.textContent =
-        `Card normalized, but grid geometry is incomplete: ${rowCount} player rows, ${holeCount} hole columns.`;
+        `Card normalized, but grid geometry is incomplete: ${rowCount} player rows, ${holeCount} derived hole centers, anchors ${anchors ? 'present' : 'missing'}.`;
     } else {
       cellDiagnosticMeta.textContent =
-        `Actual grid-derived geometry: ${rowCount} player rows × ${holeCount} hole columns = ${rowCount * holeCount} crops.`;
+        `Three-anchor grid: ${rowCount} player rows × ${holeCount} derived hole centers = ${rowCount * holeCount} crops. ` +
+        `frontLeft ${anchors.frontLeft}, OUT ${anchors.outSeparator}, backRight ${anchors.backRight}.`;
     }
   }
 
