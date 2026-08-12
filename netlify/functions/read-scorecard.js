@@ -41,7 +41,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.cardBox || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'name-y-offset-colonial-x-v3.3',
+        ocrMode: 'y-midpoint-colonial-x-v3.4',
         playerName: geometry.name || '',
         message: 'Could not confidently locate the card and first handwritten player name.',
         debug: { geometry, cells: [] }
@@ -54,16 +54,20 @@ exports.handler = async function handler(event) {
     const cardWidth = cardPx.right - cardPx.left;
     const nameHeight = Math.max(1, namePx.bottom - namePx.top);
 
-    // v3.3 Y-only calibration:
-    // v3.2 consistently landed on the printed HANDICAP row immediately above Paul.
-    // Keep the detected handwritten-name box as the anchor, but shift the score
-    // crop down by one handwriting-row offset. X geometry is intentionally unchanged.
+    // v3.4 Y-midpoint calibration:
+    // v3.2 was too high (HANDICAP row) and v3.3 was too low (blank row below Paul).
+    // Place the crop halfway between the two tested offsets while keeping all X
+    // positions exactly unchanged from v3.2/v3.3.
     const nameCenterY = Math.round((namePx.top + namePx.bottom) / 2);
-    const yOffset = Math.max(10, Math.round(nameHeight * 0.95));
+
+    const highOffset = 0; // v3.2 reference
+    const lowOffset = Math.max(10, Math.round(nameHeight * 0.95)); // v3.3 reference
+    const yOffset = Math.round((highOffset + lowOffset) / 2);
+
     const rowCenterY = clamp(nameCenterY + yOffset, 0, height - 1);
 
-    // Slightly tighter crop so the row above is less likely to leak into the tile.
-    const rowCropHeight = Math.max(18, Math.min(74, Math.round(nameHeight * 1.18)));
+    // Keep crop tight around the midpoint row.
+    const rowCropHeight = Math.max(18, Math.min(68, Math.round(nameHeight * 1.05)));
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, height - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, height);
 
@@ -108,7 +112,7 @@ exports.handler = async function handler(event) {
     }
 
     return reply(200, {
-      ocrMode: 'name-y-offset-colonial-x-v3.3',
+      ocrMode: 'y-midpoint-colonial-x-v3.4',
       playerName: geometry.name || '',
       debug: {
         geometry,
@@ -122,11 +126,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.3 geometry failure:', error);
+    console.error('v3.4 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.3 geometry diagnostic failed.',
+      error: error?.message || 'v3.4 geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'name-y-offset-colonial-x-v3.3'
+      ocrMode: 'y-midpoint-colonial-x-v3.4'
     });
   }
 };
@@ -267,7 +271,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.3 geometry locator returned an unreadable response.');
+    throw new Error('The v3.4 geometry locator returned an unreadable response.');
   }
 }
 

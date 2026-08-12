@@ -176,3 +176,14 @@ This is intentionally a Y-only change:
 - The crop height is slightly tightened to reduce bleed from the printed HANDICAP row above.
 
 Acceptance criterion: all 18 tiles should move from the HANDICAP row onto Paul's handwritten score row. Horizontal hole alignment will be evaluated only after Y is correct.
+
+## v3.4 Y-Midpoint Calibration
+Still no digit OCR.
+
+This is another Y-only diagnostic:
+- v3.2 was too high on the HANDICAP row.
+- v3.3 was too low on the blank row below Paul.
+- v3.4 uses the midpoint between those two tested offsets.
+- All Colonial X positions remain unchanged.
+
+Acceptance criterion: the 18 tiles should move onto Paul's handwritten score row. Only after Y is correct will horizontal fine-tuning resume.
