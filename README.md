@@ -156,3 +156,13 @@ Still no digit OCR.
 v3.1 uses the printed PAR row as an explicit vertical landmark and applies the observed v3.0 two-hole horizontal correction. The first player name above PAR is used as the primary row anchor, with PAR available as a sanity repair.
 
 Acceptance criterion: Hole 1 tile should show Paul's actual Hole 1 score (not Hole 3/par), and all 18 tiles should remain on Paul's handwritten row.
+
+## v3.2 Name-Y + Colonial-X Calibration
+Still no digit OCR.
+
+Key changes:
+- Y is exactly the center of the detected handwritten player name. No PAR-based repair.
+- X uses calibrated Colonial hole centers based on the known printed card layout.
+- The wider OUT gap between Holes 9 and 10 is explicitly preserved.
+
+Acceptance criterion: all 18 diagnostic tiles should show Paul's corresponding handwritten scores, starting with Hole 1 rather than Hole 3 and staying on Paul's row.
