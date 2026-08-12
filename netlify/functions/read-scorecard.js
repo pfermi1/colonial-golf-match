@@ -28,68 +28,65 @@ exports.handler = async function handler(event) {
     const height = meta.height;
     const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
 
-    // ONE vision call only:
-    // identify the first player name, its name box, and the exact handwritten row centerline.
+    // One vision call only: locate player-name row and approximate score span.
     const geometry = await locateFirstPlayerRowByName(apiKey, normalizedDataUrl);
 
-    if (!geometry.front || !geometry.back) {
+    if (!geometry.front || !geometry.back || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'name-anchored-row-geometry-v2.6',
+        ocrMode: 'grid-line-geometry-v2.7',
         playerName: geometry.name || '',
-        message: 'Could not confidently locate the handwritten score row.',
-        debug: { geometry, cells: [] }
+        message: 'Could not confidently locate the first handwritten player row.',
+        debug: { geometry, cells: [], gridLines: [] }
       });
     }
 
-    const cells = [];
-    for (const half of [
-      { box: geometry.front, startHole: 1, label: 'front' },
-      { box: geometry.back, startHole: 10, label: 'back' }
-    ]) {
-      const nineBuffer = await extractNormalizedBox(normalizedBuffer, width, height, half.box);
-      const nineMeta = await sharp(nineBuffer).metadata();
-      const nineWidth = nineMeta.width;
-      const nineHeight = nineMeta.height;
+    // Build one wide strip covering Hole 1 through Hole 18 on Paul's row.
+    const leftNorm = geometry.front.left;
+    const rightNorm = geometry.back.right;
+    const topNorm = Math.min(geometry.front.top, geometry.back.top);
+    const bottomNorm = Math.max(geometry.front.bottom, geometry.back.bottom);
 
-      for (let i = 0; i < 9; i++) {
-        const hole = half.startHole + i;
-        const x0 = Math.floor(i * nineWidth / 9);
-        const x1 = Math.floor((i + 1) * nineWidth / 9);
-        const rawW = Math.max(1, x1 - x0);
+    const rowStrip = await extractNormalizedBox(normalizedBuffer, width, height, {
+      left: leftNorm,
+      top: topNorm,
+      right: rightNorm,
+      bottom: bottomNorm
+    });
 
-        const trimX = Math.max(1, Math.floor(rawW * 0.05));
-        const trimY = Math.max(1, Math.floor(nineHeight * 0.04));
+    // Detect vertical printed grid lines from image pixels, not equal-width math.
+    const grid = await detectVerticalGridLines(rowStrip);
 
-        const left = Math.min(nineWidth - 1, x0 + trimX);
-        const top = Math.min(nineHeight - 1, trimY);
-        const cellW = Math.max(1, Math.min(nineWidth - left, rawW - trimX * 2));
-        const cellH = Math.max(1, Math.min(nineHeight - top, nineHeight - trimY * 2));
-
-        const cellBuffer = await sharp(nineBuffer)
-          .extract({ left, top, width: cellW, height: cellH })
-          .resize({ width: 240, height: 180, fit: 'contain', background: '#ffffff' })
-          .jpeg({ quality: 92 })
-          .toBuffer();
-
-        cells.push({
-          hole,
-          half: half.label,
-          imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
-        });
-      }
+    if (!grid || grid.lines.length < 19) {
+      return reply(200, {
+        ocrMode: 'grid-line-geometry-v2.7',
+        playerName: geometry.name || '',
+        message: 'Could not detect enough vertical score-grid lines for 18 holes.',
+        debug: {
+          geometry,
+          gridLines: grid?.lines || [],
+          cells: []
+        }
+      });
     }
 
+    const cells = await cropCellsBetweenGridLines(rowStrip, grid.lines);
+
     return reply(200, {
-      ocrMode: 'name-anchored-row-geometry-v2.6',
+      ocrMode: 'grid-line-geometry-v2.7',
       playerName: geometry.name || '',
-      debug: { geometry, cells }
+      debug: {
+        geometry,
+        gridLines: grid.lines,
+        gridStrengths: grid.strengths,
+        cells
+      }
     });
   } catch (error) {
-    console.error('v2.6 geometry failure:', error);
+    console.error('v2.7 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'Geometry diagnostic failed.',
+      error: error?.message || 'Grid-line geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'name-anchored-row-geometry-v2.6'
+      ocrMode: 'grid-line-geometry-v2.7'
     });
   }
 };
@@ -98,30 +95,25 @@ async function locateFirstPlayerRowByName(apiKey, imageDataUrl) {
   const prompt = `
 Geometry-only task on a photographed Colonial Golf Club scorecard.
 
-The photo is preferably landscape:
-- Hole 1 is on the left.
-- Hole 18 is on the right.
-- handwritten player names are on the left side of their score rows.
+Preferred orientation:
+- Hole 1 is at the left.
+- Hole 18 is at the right.
+- handwritten player names are at the left of their score rows.
 - player score rows are below the printed HANDICAP row and above the printed PAR row.
 
 Find the FIRST handwritten player name that has handwritten scores on the same row.
 
-Then use the VERTICAL CENTER of that handwritten NAME as the anchor for the player's score row.
-The Hole 1-9 and Hole 10-18 boxes must be centered on exactly the same handwritten row as the name.
-
 Return:
 - name: handwritten player name
-- nameBox: tight box around the handwritten name
-- front: tight box around only that player's handwritten Hole 1-9 score cells
-- back: tight box around only that player's handwritten Hole 10-18 score cells
+- nameBox: tight box around handwritten name
+- front: approximate box spanning that player's handwritten Hole 1-9 score area
+- back: approximate box spanning that same player's handwritten Hole 10-18 score area
 
 CRITICAL:
-- The vertical centers of nameBox, front and back must be nearly identical.
-- Do not use the blank row above or below the player's writing.
-- Do not select the printed HANDICAP row.
-- Do not select the printed PAR row.
-- Do not select yardages, OUT, IN, TOT, HCP, NET, table, knee or background.
-- front must be left of back.
+- nameBox, front and back must share the same vertical handwritten row.
+- Do not select blank rows above/below.
+- Do not select the printed HANDICAP row or PAR row.
+- Do not select OUT, IN, TOT, HCP, NET, yardages, table, knee or background.
 - Coordinates are normalized integers 0-1000 relative to the full image.
 
 Return JSON only:
@@ -145,12 +137,11 @@ Return JSON only:
 
   if (!nameBox || !front || !back) return { name, nameBox, front: null, back: null };
 
-  // Name-anchored vertical correction:
-  // use the centerline of the handwritten name and force front/back to share it.
+  // Force the score bands onto the vertical centerline of the handwritten name.
   const nameCenter = (nameBox.top + nameBox.bottom) / 2;
   const frontHeight = front.bottom - front.top;
   const backHeight = back.bottom - back.top;
-  const rowHeight = Math.max(12, Math.min(70, (frontHeight + backHeight) / 2));
+  const rowHeight = Math.max(16, Math.min(64, (frontHeight + backHeight) / 2));
 
   front = {
     left: front.left,
@@ -158,7 +149,6 @@ Return JSON only:
     top: clamp(nameCenter - rowHeight / 2, 0, 999),
     bottom: clamp(nameCenter + rowHeight / 2, 1, 1000)
   };
-
   back = {
     left: back.left,
     right: back.right,
@@ -166,16 +156,186 @@ Return JSON only:
     bottom: clamp(nameCenter + rowHeight / 2, 1, 1000)
   };
 
-  const ordered = front.left < back.left;
-  const nameAligned =
-    Math.abs(((front.top + front.bottom) / 2) - nameCenter) <= 4 &&
-    Math.abs(((back.top + back.bottom) / 2) - nameCenter) <= 4;
-
-  if (!ordered || !nameAligned) {
+  if (!(front.left < back.left)) {
     return { name, nameBox, front: null, back: null };
   }
 
   return { name, nameBox, front, back };
+}
+
+async function detectVerticalGridLines(rowBuffer) {
+  // Convert to grayscale raw pixels.
+  const { data, info } = await sharp(rowBuffer)
+    .grayscale()
+    .normalize()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const width = info.width;
+  const height = info.height;
+  if (!width || !height || width < 180) return null;
+
+  // Vertical grid lines are dark and extend through most of the short row strip.
+  // Score handwriting is dark too, but only occupies a small portion of height.
+  const darkThreshold = 150;
+  const scores = new Array(width).fill(0);
+
+  for (let x = 0; x < width; x++) {
+    let darkCount = 0;
+    let transitionCount = 0;
+    let prev = data[x];
+    for (let y = 0; y < height; y++) {
+      const v = data[y * width + x];
+      if (v < darkThreshold) darkCount++;
+      if (y > 0 && Math.abs(v - prev) > 45) transitionCount++;
+      prev = v;
+    }
+    // Reward persistent dark vertical content; slight reward for edge continuity.
+    scores[x] = (darkCount / height) + 0.05 * (transitionCount / Math.max(1, height - 1));
+  }
+
+  // Smooth horizontally to merge 1-3 pixel line widths.
+  const smooth = new Array(width).fill(0);
+  const radius = 2;
+  for (let x = 0; x < width; x++) {
+    let sum = 0, n = 0;
+    for (let dx = -radius; dx <= radius; dx++) {
+      const xx = x + dx;
+      if (xx >= 0 && xx < width) {
+        sum += scores[xx];
+        n++;
+      }
+    }
+    smooth[x] = sum / n;
+  }
+
+  // Find local peaks above a conservative threshold.
+  const peaks = [];
+  const minPeak = 0.42;
+  for (let x = 2; x < width - 2; x++) {
+    if (smooth[x] >= minPeak &&
+        smooth[x] >= smooth[x - 1] &&
+        smooth[x] >= smooth[x + 1]) {
+      peaks.push({ x, strength: smooth[x] });
+    }
+  }
+
+  // Collapse nearby peaks into single line centers.
+  const clustered = [];
+  for (const p of peaks) {
+    const last = clustered[clustered.length - 1];
+    if (!last || p.x - last.x > 6) {
+      clustered.push({ x: p.x, strength: p.strength });
+    } else if (p.strength > last.strength) {
+      clustered[clustered.length - 1] = { x: p.x, strength: p.strength };
+    }
+  }
+
+  // Estimate normal hole-cell spacing using robust differences between peaks.
+  const diffs = [];
+  for (let i = 1; i < clustered.length; i++) {
+    const d = clustered[i].x - clustered[i - 1].x;
+    if (d >= 10 && d <= width / 6) diffs.push(d);
+  }
+  diffs.sort((a, b) => a - b);
+  const median = diffs.length ? diffs[Math.floor(diffs.length / 2)] : width / 18;
+
+  // Select a 19-line sequence (boundaries for 18 cells) with near-regular spacing.
+  let best = null;
+  const expected = median || width / 18;
+  const tolerance = Math.max(8, expected * 0.38);
+
+  for (let start = 0; start < clustered.length; start++) {
+    const seq = [clustered[start]];
+    let currentX = clustered[start].x;
+
+    for (let hole = 1; hole < 19; hole++) {
+      const target = currentX + expected;
+      let candidate = null;
+      let bestCost = Infinity;
+
+      for (const p of clustered) {
+        if (p.x <= currentX + 5) continue;
+        const cost = Math.abs(p.x - target) - p.strength * 8;
+        if (Math.abs(p.x - target) <= tolerance && cost < bestCost) {
+          candidate = p;
+          bestCost = cost;
+        }
+      }
+
+      if (!candidate) break;
+      seq.push(candidate);
+      currentX = candidate.x;
+    }
+
+    if (seq.length >= 19) {
+      const span = seq[18].x - seq[0].x;
+      const spacingErrors = [];
+      for (let i = 1; i < 19; i++) {
+        spacingErrors.push(Math.abs((seq[i].x - seq[i-1].x) - expected));
+      }
+      const error = spacingErrors.reduce((a,b)=>a+b,0) / spacingErrors.length;
+      const strength = seq.reduce((a,b)=>a+b.strength,0) / seq.length;
+      const cost = error - strength * 4 - span / width;
+      if (!best || cost < best.cost) best = { seq, cost };
+    }
+  }
+
+  // Fallback: if exact sequence not found, infer 19 boundaries from strongest endpoints.
+  let lines;
+  let strengths;
+  if (best) {
+    lines = best.seq.slice(0, 19).map(p => p.x);
+    strengths = best.seq.slice(0, 19).map(p => Number(p.strength.toFixed(3)));
+  } else {
+    // Find a plausible left/right extent from dense peak region and interpolate.
+    if (clustered.length < 2) return { lines: [], strengths: [] };
+    const left = clustered[0].x;
+    const right = clustered[clustered.length - 1].x;
+    if (right - left < width * 0.55) return { lines: [], strengths: [] };
+
+    lines = Array.from({ length: 19 }, (_, i) =>
+      Math.round(left + (right - left) * i / 18)
+    );
+    strengths = lines.map(() => 0);
+  }
+
+  return { lines, strengths };
+}
+
+async function cropCellsBetweenGridLines(rowBuffer, lines) {
+  const meta = await sharp(rowBuffer).metadata();
+  const width = meta.width;
+  const height = meta.height;
+  const cells = [];
+
+  for (let i = 0; i < 18; i++) {
+    const hole = i + 1;
+    const x0 = clamp(Math.floor(lines[i]), 0, width - 1);
+    const x1 = clamp(Math.ceil(lines[i + 1]), x0 + 1, width);
+
+    // Trim a few pixels off the detected grid lines.
+    const trimX = Math.max(1, Math.floor((x1 - x0) * 0.06));
+    const trimY = Math.max(1, Math.floor(height * 0.04));
+
+    const left = clamp(x0 + trimX, 0, width - 1);
+    const top = clamp(trimY, 0, height - 1);
+    const cellWidth = Math.max(1, Math.min(width - left, (x1 - x0) - trimX * 2));
+    const cellHeight = Math.max(1, Math.min(height - top, height - trimY * 2));
+
+    const cellBuffer = await sharp(rowBuffer)
+      .extract({ left, top, width: cellWidth, height: cellHeight })
+      .resize({ width: 240, height: 180, fit: 'contain', background: '#ffffff' })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+
+    cells.push({
+      hole,
+      imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
+    });
+  }
+
+  return cells;
 }
 
 async function extractNormalizedBox(imageBuffer, imageWidth, imageHeight, box) {
@@ -196,9 +356,11 @@ function normalizeBox(box) {
   const top = Number(box.top);
   const right = Number(box.right);
   const bottom = Number(box.bottom);
+
   if (![left, top, right, bottom].every(Number.isFinite)) return null;
   if (left < 0 || top < 0 || right > 1000 || bottom > 1000) return null;
   if (right - left < 20 || bottom - top < 8) return null;
+
   return { left, top, right, bottom };
 }
 
@@ -227,12 +389,14 @@ async function callVision(apiKey, content, maxOutputTokens) {
     const message = raw?.error?.message || `OpenAI request failed (${apiResponse.status}).`;
     throw new Error(message);
   }
+
   return raw;
 }
 
 function extractOutputText(response) {
   if (typeof response.output_text === 'string') return response.output_text;
   const parts = [];
+
   for (const item of response.output || []) {
     for (const content of item.content || []) {
       if (content.type === 'output_text' && typeof content.text === 'string') {
@@ -240,6 +404,7 @@ function extractOutputText(response) {
       }
     }
   }
+
   return parts.join('\n').trim();
 }
 

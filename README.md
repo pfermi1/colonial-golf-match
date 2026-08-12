@@ -113,3 +113,10 @@ Still no digit OCR.
 The geometry locator now returns the handwritten player-name bounding box as well as the front/back score regions. The server mechanically forces both score regions to share the vertical centerline of that handwritten name.
 
 Acceptance criterion: using the same landscape Paul test photo, all 18 diagnostic tiles should contain Paul's handwritten score digits rather than an adjacent blank row.
+
+## v2.7 Printed Grid-Line Geometry
+Still no digit OCR.
+
+v2.7 keeps the successful name-anchored vertical row from v2.6, but stops dividing the score span into equal widths. It analyzes the actual row image and detects persistent dark vertical grid lines. Those printed grid lines become the Hole 1-18 crop boundaries.
+
+Acceptance criterion: the 18 diagnostic tiles each contain exactly one corresponding handwritten score, with no OUT/IN total or center-divider shifts.
