@@ -89,3 +89,6 @@ Standard test orientation: landscape scorecard with Hole 1 at left, Hole 18 at r
 v2.4 adds a second geometry-verification pass before any per-hole crop is made. It explicitly rejects printed HANDICAP/PAR/yardage rows and background, requires front/back boxes to be on the same handwritten player row, and keeps the 18-image diagnostic screen.
 
 Acceptance test: using the saved Paul-only test photo, every diagnostic tile must visibly contain Paul's corresponding handwritten score before OCR accuracy is evaluated.
+
+## v2.4.1
+Hotfix for the v2.4 pre-diagnostic failure. The geometry verification pass now fails soft and preserves the initial geometry if its response cannot be parsed. HTTP failures are surfaced with their server-provided message instead of collapsing into a generic browser string-pattern error.

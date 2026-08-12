@@ -84,7 +84,7 @@ exports.handler = async function handler(event) {
         rowGeometry,
         cellDiagnostics: allCellDiagnostics
       },
-      ocrMode: 'oriented-card-cell-crop-v2.4'
+      ocrMode: 'oriented-card-cell-crop-v2.4.1'
     });
   } catch (error) {
     console.error('v2.3 scorecard read failed:', error);
@@ -199,20 +199,26 @@ Critical rejection rules:
 Return JSON only:
 {"front":{"left":0,"top":0,"right":0,"bottom":0},"back":{"left":0,"top":0,"right":0,"bottom":0}}
 `;
-  const raw = await callVision(apiKey, [
-    { type: 'input_text', text: prompt },
-    { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 450);
-  const parsed = parseJson(extractOutputText(raw));
-  const front = normalizeBox(parsed?.front);
-  const back = normalizeBox(parsed?.back);
-  if (!front || !back) return geometry;
+  try {
+    const raw = await callVision(apiKey, [
+      { type: 'input_text', text: prompt },
+      { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
+    ], 450);
+    const text = extractOutputText(raw);
+    const parsed = parseJson(text);
+    const front = normalizeBox(parsed?.front);
+    const back = normalizeBox(parsed?.back);
+    if (!front || !back) return geometry;
 
-  // Mechanical sanity checks for the standard landscape layout.
-  const sameRow = Math.abs(front.top - back.top) <= 35 && Math.abs(front.bottom - back.bottom) <= 35;
-  const ordered = front.left < back.left;
-  if (!sameRow || !ordered) return geometry;
-  return { front, back };
+    // Mechanical sanity checks for the standard landscape layout.
+    const sameRow = Math.abs(front.top - back.top) <= 35 && Math.abs(front.bottom - back.bottom) <= 35;
+    const ordered = front.left < back.left;
+    if (!sameRow || !ordered) return geometry;
+    return { front, back };
+  } catch (err) {
+    console.error('v2.4.1 geometry verifier failed; using initial geometry:', err);
+    return geometry;
+  }
 }
 
 async function readPlayerFromTrueCells(apiKey, imageBuffer, imageWidth, imageHeight, playerName, geometry) {

@@ -135,6 +135,17 @@ backFromComparisonButton.addEventListener('click', () => showPanel(roundPanel));
 cameraInput.addEventListener('change', () => prepareSelectedPhoto(cameraInput));
 libraryInput.addEventListener('change', () => prepareSelectedPhoto(libraryInput));
 
+
+async function readErrorResponse(response) {
+  const raw = await response.text();
+  try {
+    const data = JSON.parse(raw);
+    return data?.error ? `${data.error}${data.errorName ? ` (${data.errorName})` : ''}` : raw;
+  } catch {
+    return raw || `Request failed with status ${response.status}`;
+  }
+}
+
 async function prepareSelectedPhoto(input) {
   const file = input.files?.[0];
   if (!file) return;
@@ -160,8 +171,8 @@ readButton.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageDataUrl, expectedPlayers: Number(playerCount.value) })
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Scorecard reader failed.');
+    if (!response.ok) throw new Error(await readErrorResponse(response));
+      const payload = await response.json();
     pendingRawPayload = payload;
     rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
     renderCellDiagnostics(payload);
