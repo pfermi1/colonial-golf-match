@@ -367,3 +367,13 @@ Front-end diagnostic hotfix only.
 - Renders `debug.cardPreviewDataUrl` and `debug.templateRows` directly.
 - The diagnostic page now shows the detected card plus all 72 fixed card-template crops, or a specific card/template-return error.
 - No OCR or recognition logic changed.
+
+## v5.8 Upright Card Template Geometry
+No score OCR.
+
+Key changes:
+- Vision first chooses a 0/90/180/270 rotation so the physical card is landscape with Hole 1 on the left and Hole 18 on the right.
+- The rotated image is then used for a second card-box/name geometry pass.
+- The physical card is cropped and normalized to a fixed 1800x1050 landscape image.
+- Fixed Colonial player-row and hole-column template coordinates are applied only to that normalized card.
+- The diagnostic page shows the normalized upright card and all 72 crops.

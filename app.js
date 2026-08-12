@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.7.2.2 startup
+showPanel(roundPanel); // v5.8 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.7.2.2 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.8 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.7.2.2 startup
+showPanel(roundPanel); // v5.8 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.7.2.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.8 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.7.2.2 startup
+showPanel(roundPanel); // v5.8 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v5.7.2.2 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.7.2.2 startup
+showPanel(roundPanel); // v5.8 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.7.2.2 startup
+showPanel(roundPanel); // v5.8 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -870,17 +870,19 @@ function renderCellDiagnostics(payload) {
 
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
-  const previewUrl = debug.cardPreviewDataUrl || '';
+  const previewUrl = debug.normalizedCardDataUrl || debug.uprightImageDataUrl || '';
 
   if (cellDiagnosticMeta) {
+    const rotation = debug.rotationClockwiseDegrees ?? '?';
     if (!debug.cardBox) {
-      cellDiagnosticMeta.textContent = 'Card detection failed: no physical card box was returned.';
+      cellDiagnosticMeta.textContent =
+        `Card detection failed after ${rotation}° rotation.`;
     } else if (!rows.length) {
       cellDiagnosticMeta.textContent =
-        `Card detected, but no template rows were returned. Card box: ${JSON.stringify(debug.cardBox)}`;
+        `Card detected after ${rotation}° rotation, but no template rows were returned.`;
     } else {
       cellDiagnosticMeta.textContent =
-        `Detected card and generated ${rows.length} fixed player rows (${rows.length * 18} crops total).`;
+        `Rotation ${rotation}° · normalized card 1800×1050 · ${rows.length} fixed rows · ${rows.length * 18} crops.`;
     }
   }
 
@@ -889,11 +891,13 @@ function renderCellDiagnostics(payload) {
     previewSection.className = 'cell-diagnostic-player';
 
     const title = document.createElement('h3');
-    title.textContent = 'Detected physical card';
+    title.textContent = debug.normalizedCardDataUrl
+      ? 'Normalized upright card'
+      : 'Upright source image';
 
     const img = document.createElement('img');
     img.src = previewUrl;
-    img.alt = 'Detected physical scorecard';
+    img.alt = 'Normalized upright Colonial scorecard';
     img.style.width = '100%';
     img.style.borderRadius = '12px';
 
@@ -940,7 +944,7 @@ function renderCellDiagnostics(payload) {
   if (!previewUrl && !rows.length) {
     const error = document.createElement('p');
     error.className = 'help';
-    error.textContent = 'No card preview or template crops were returned by the server.';
+    error.textContent = 'No upright card preview or template crops were returned by the server.';
     cellDiagnosticPlayers.appendChild(error);
   }
 }

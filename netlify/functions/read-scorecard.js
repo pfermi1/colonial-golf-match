@@ -2,22 +2,27 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
-// Colonial card geometry ratios, measured relative to the physical card rectangle.
-// v5.7.1 does NO score OCR. It only proves card-relative grid cropping.
+// Fixed Colonial template coordinates, applied ONLY after the card has been
+// rotated upright, cropped to the physical card, and resized to 1800x1050.
+const WARP_WIDTH = 1800;
+const WARP_HEIGHT = 1050;
+
 const HOLE_X_RATIOS = [
   0.155, 0.189, 0.223, 0.257, 0.291, 0.325, 0.359, 0.393, 0.427,
   0.515, 0.549, 0.583, 0.617, 0.651, 0.685, 0.719, 0.753, 0.787
 ];
 
-// Main handwritten player block row centers relative to the detected physical card.
-// These are deliberately template-relative, not raw-photo-relative.
 const PLAYER_ROW_Y_RATIOS = [0.365, 0.405, 0.445, 0.485];
 
 exports.handler = async function(event) {
-  if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
+  if (event.httpMethod !== 'POST') {
+    return reply(405, { error: 'Method not allowed.' });
+  }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
+  if (!apiKey) {
+    return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
+  }
 
   try {
     const body = JSON.parse(event.body || '{}');
@@ -29,35 +34,71 @@ exports.handler = async function(event) {
 
     const originalBuffer = dataUrlToBuffer(imageDataUrl);
 
-    // EXIF-normalize only; preserve the full card photograph otherwise.
-    const normalizedBuffer = await sharp(originalBuffer)
+    // Normalize EXIF orientation first.
+    const exifNormalized = await sharp(originalBuffer)
       .rotate()
-      .resize({ width: 2200, height: 2200, fit: 'inside', withoutEnlargement: true })
+      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    const meta = await sharp(normalizedBuffer).metadata();
-    const width = meta.width;
-    const height = meta.height;
-    const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
+    const exifMeta = await sharp(exifNormalized).metadata();
+    const exifDataUrl = `data:image/jpeg;base64,${exifNormalized.toString('base64')}`;
 
-    // One simple geometry call: physical card bounds + handwritten names only.
-    // Do NOT ask vision to locate score rows or read scores.
-    const prompt = `
+    // PASS 1: determine the 90-degree rotation needed to make the PHYSICAL CARD
+    // landscape with HOLE 1 on the left and HOLE 18 on the right.
+    const orientationPrompt = `
+GEOMETRY ONLY. Do not read player scores.
+
+Look at this Colonial Golf Club scorecard photograph.
+
+Choose the clockwise rotation needed to make the PHYSICAL SCORECARD upright landscape:
+- the word HOLE should read normally;
+- Hole 1 should be on the LEFT;
+- Hole 18 should be on the RIGHT;
+- handwritten player names should read normally from left to right.
+
+Return exactly one of 0, 90, 180, or 270 clockwise degrees.
+
+Return JSON only:
+{"rotateClockwiseDegrees":0}
+`;
+
+    const orientationText = extractOutputText(
+      await callVision(apiKey, orientationPrompt, exifDataUrl, 250)
+    );
+
+    const orientationParsed = parseJson(orientationText);
+    const rotation = normalizeRotation(orientationParsed?.rotateClockwiseDegrees);
+
+    const uprightBuffer = rotation === 0
+      ? exifNormalized
+      : await sharp(exifNormalized)
+          .rotate(rotation)
+          .jpeg({ quality: 95 })
+          .toBuffer();
+
+    const uprightMeta = await sharp(uprightBuffer).metadata();
+    const uprightWidth = uprightMeta.width;
+    const uprightHeight = uprightMeta.height;
+    const uprightDataUrl = `data:image/jpeg;base64,${uprightBuffer.toString('base64')}`;
+
+    // PASS 2: on the now-upright image, locate only the physical card rectangle
+    // and handwritten player names. No score rows and no score OCR.
+    const locatorPrompt = `
 GEOMETRY AND NAMES ONLY. Do not read any golf score digits.
 
-Look at this ONE Colonial Golf Club scorecard photograph.
+This Colonial Golf Club scorecard image has already been rotated so the physical
+card should be landscape with Hole 1 on the LEFT and Hole 18 on the RIGHT.
 
 Return:
-1) the outer physical rectangle of the scorecard itself;
-2) the handwritten player names in the main player block above the printed PAR row, top-to-bottom.
+1) the tight outer rectangle of the physical scorecard itself;
+2) the handwritten player names in the MAIN player block above the printed PAR row,
+   top-to-bottom.
 
-Do NOT locate score rows.
-Do NOT read any score digits.
-Do NOT include the separate handwritten scorer row below PAR.
+Do not include the separate handwritten scorer row below PAR.
 Ignore printed PAR, HANDICAP, yardage, tee, scorer, attest and date information.
 
-Coordinates are normalized integers 0-1000 relative to THIS image.
+Coordinates are normalized integers 0-1000 relative to THIS upright image.
 
 Return JSON only:
 {
@@ -66,19 +107,23 @@ Return JSON only:
 }
 `;
 
-    const locatorText = extractOutputText(await callVision(apiKey, prompt, normalizedDataUrl, 700));
-    const parsed = parseJson(locatorText);
+    const locatorText = extractOutputText(
+      await callVision(apiKey, locatorPrompt, uprightDataUrl, 700)
+    );
 
-    const cardBox = normalizeBox(parsed?.cardBox, 200, 150);
-    const names = Array.isArray(parsed?.names)
-      ? parsed.names.map(v => String(v || '').trim()).filter(Boolean).slice(0, 4)
+    const locatorParsed = parseJson(locatorText);
+    const cardBox = normalizeBox(locatorParsed?.cardBox, 250, 180);
+    const names = Array.isArray(locatorParsed?.names)
+      ? locatorParsed.names.map(v => String(v || '').trim()).filter(Boolean).slice(0, 4)
       : [];
 
     const debug = {
+      orientationPass: orientationText,
+      rotationClockwiseDegrees: rotation,
       locatorPass: locatorText,
-      normalizedImageDataUrl: normalizedDataUrl,
       cardBox,
-      cardPreviewDataUrl: null,
+      uprightImageDataUrl: uprightDataUrl,
+      normalizedCardDataUrl: null,
       templateRows: []
     };
 
@@ -86,48 +131,53 @@ Return JSON only:
       return reply(200, {
         players: [],
         debug,
-        warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'card-template-geometry-v5.7.1'
+        warning: 'Could not locate the physical card rectangle after upright rotation.',
+        ocrMode: 'upright-card-template-geometry-v5.8'
       });
     }
 
-    const cardPx = normBoxToPixels(cardBox, width, height);
-    const cardW = cardPx.right - cardPx.left;
-    const cardH = cardPx.bottom - cardPx.top;
+    const cardPx = normBoxToPixels(cardBox, uprightWidth, uprightHeight);
 
-    // Card preview for visual confirmation.
-    const cardPreview = await sharp(normalizedBuffer)
+    // Crop the physical card and normalize it to a fixed landscape coordinate system.
+    // This is the key v5.8 change: all template coordinates below are relative to
+    // this standardized card image, not to the phone photograph.
+    const cardBuffer = await sharp(uprightBuffer)
       .extract({
         left: cardPx.left,
         top: cardPx.top,
-        width: cardW,
-        height: cardH
+        width: cardPx.right - cardPx.left,
+        height: cardPx.bottom - cardPx.top
       })
-      .resize({ width: 1000, fit: 'inside' })
-      .jpeg({ quality: 90 })
+      .resize({
+        width: WARP_WIDTH,
+        height: WARP_HEIGHT,
+        fit: 'fill'
+      })
+      .jpeg({ quality: 96 })
       .toBuffer();
 
-    debug.cardPreviewDataUrl = `data:image/jpeg;base64,${cardPreview.toString('base64')}`;
+    debug.normalizedCardDataUrl =
+      `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
 
-    // Create four fixed template rows regardless of whether all four names were read.
+    // Generate four fixed Colonial player rows and 18 hole crops per row.
+    const cropW = 58;
+    const cropH = 58;
+
     const players = [];
-    const normalSpacing = 0.034 * cardW;
-    const cropW = Math.max(30, Math.round(normalSpacing * 1.02));
-    const cropH = Math.max(42, Math.round(cardH * 0.045));
 
     for (let pIndex = 0; pIndex < PLAYER_ROW_Y_RATIOS.length; pIndex++) {
-      const rowCenterY = Math.round(cardPx.top + PLAYER_ROW_Y_RATIOS[pIndex] * cardH);
+      const rowCenterY = Math.round(PLAYER_ROW_Y_RATIOS[pIndex] * WARP_HEIGHT);
       const cells = [];
 
       for (let h = 0; h < 18; h++) {
-        const cx = Math.round(cardPx.left + HOLE_X_RATIOS[h] * cardW);
+        const cx = Math.round(HOLE_X_RATIOS[h] * WARP_WIDTH);
 
-        const left = clamp(Math.round(cx - cropW/2), 0, width - 1);
-        const top = clamp(Math.round(rowCenterY - cropH/2), 0, height - 1);
-        const right = clamp(left + cropW, left + 1, width);
-        const bottom = clamp(top + cropH, top + 1, height);
+        const left = clamp(Math.round(cx - cropW / 2), 0, WARP_WIDTH - 1);
+        const top = clamp(Math.round(rowCenterY - cropH / 2), 0, WARP_HEIGHT - 1);
+        const right = clamp(left + cropW, left + 1, WARP_WIDTH);
+        const bottom = clamp(top + cropH, top + 1, WARP_HEIGHT);
 
-        const cellBuffer = await sharp(normalizedBuffer)
+        const cellBuffer = await sharp(cardBuffer)
           .extract({
             left,
             top,
@@ -172,21 +222,27 @@ Return JSON only:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'card-template-geometry-v5.7.1'
+      ocrMode: 'upright-card-template-geometry-v5.8'
     });
 
   } catch (error) {
-    console.error('v5.7.1 card-template geometry failure:', error);
+    console.error('v5.8 upright-card geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'Card-template geometry diagnostic failed.',
+      error: error?.message || 'Upright-card geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'card-template-geometry-v5.7.1'
+      ocrMode: 'upright-card-template-geometry-v5.8'
     });
   }
 };
 
+function normalizeRotation(v) {
+  const n = Number(v);
+  return [0, 90, 180, 270].includes(n) ? n : 0;
+}
+
 function normalizeBox(box, minW, minH) {
   if (!box || typeof box !== 'object') return null;
+
   const left = Number(box.left);
   const top = Number(box.top);
   const right = Number(box.right);
@@ -204,7 +260,8 @@ function normBoxToPixels(box, width, height) {
   const top = clamp(Math.floor(box.top / 1000 * height), 0, height - 1);
   const right = clamp(Math.ceil(box.right / 1000 * width), left + 1, width);
   const bottom = clamp(Math.ceil(box.bottom / 1000 * height), top + 1, height);
-  return { left, top, right, bottom };
+
+  return { left, top,right,bottom };
 }
 
 function dataUrlToBuffer(dataUrl) {
@@ -218,15 +275,15 @@ async function callVision(apiKey, prompt, imageDataUrl, max_output_tokens) {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':'application/json'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       model: MODEL,
       input: [{
-        role:'user',
-        content:[
-          { type:'input_text', text:prompt },
-          { type:'input_image', image_url:imageDataUrl, detail:'high' }
+        role: 'user',
+        content: [
+          { type: 'input_text', text: prompt },
+          { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
         ]
       }],
       max_output_tokens
@@ -234,7 +291,10 @@ async function callVision(apiKey, prompt, imageDataUrl, max_output_tokens) {
   });
 
   const raw = await r.json();
-  if (!r.ok) throw new Error(raw?.error?.message || `OpenAI request failed (${r.status}).`);
+  if (!r.ok) {
+    throw new Error(raw?.error?.message || `OpenAI request failed (${r.status}).`);
+  }
+
   return raw;
 }
 
@@ -247,6 +307,7 @@ function extractOutputText(r) {
       if (c.type === 'output_text' && typeof c.text === 'string') parts.push(c.text);
     }
   }
+
   return parts.join('\n').trim();
 }
 
@@ -260,8 +321,9 @@ function parseJson(text) {
   } catch (_) {
     const a = c.indexOf('{');
     const b = c.lastIndexOf('}');
+
     if (a >= 0 && b > a) return JSON.parse(c.slice(a, b + 1));
-    throw new Error('The card locator returned an unreadable response.');
+    throw new Error('The geometry reader returned an unreadable response.');
   }
 }
 
@@ -273,8 +335,8 @@ function reply(statusCode, body) {
   return {
     statusCode,
     headers: {
-      'Content-Type':'application/json',
-      'Cache-Control':'no-store'
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store'
     },
     body: JSON.stringify(body)
   };
