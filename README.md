@@ -198,3 +198,16 @@ This is intentionally a surgical change:
 - X ratios are applied relative to the detected physical scorecard rectangle, not the overall photo frame.
 
 Acceptance criterion: Hole 1 should show Paul's actual Hole 1 score, Hole 9 should show Paul's actual Hole 9 score rather than the OUT/37 total, and Holes 10-18 should remain correct.
+
+## v3.6 Perspective-Normalized Card
+Still no digit OCR.
+
+v3.6 stops calibrating raw-photo X/Y positions. It:
+1. detects the four physical scorecard corners;
+2. computes a true projective homography;
+3. perspective-warps the card into a fixed 1800x1050 rectangle;
+4. transforms the player-name center into that normalized card;
+5. applies fixed Colonial Hole 1-18 X positions on the normalized card;
+6. shows the 18 crops for inspection.
+
+This is designed so moderate differences in phone framing, card size, rotation and perspective should be normalized away before cropping.
