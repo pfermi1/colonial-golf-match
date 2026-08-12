@@ -92,3 +92,14 @@ Acceptance test: using the saved Paul-only test photo, every diagnostic tile mus
 
 ## v2.4.1
 Hotfix for the v2.4 pre-diagnostic failure. The geometry verification pass now fails soft and preserves the initial geometry if its response cannot be parsed. HTTP failures are surfaced with their server-provided message instead of collapsing into a generic browser string-pattern error.
+
+## v2.5 Geometry Only Diagnostic
+No score OCR is performed after row location.
+
+Flow:
+1. One vision call locates the first handwritten player row.
+2. The front and back nine are cropped locally.
+3. Each nine is divided into nine local images.
+4. The app shows the 18 images for visual verification.
+
+Acceptance criterion: each tile must show the correct handwritten score box for the same player, in Hole 1-18 order.

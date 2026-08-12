@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 2.4.1.1 · Geometry Error Hotfix</p>
+      <p class="help compact-help">Version 2.5 · Geometry Only Diagnostic</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,35 +104,23 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 2.4.1.1 · Geometry Error Hotfix</footer>
+    <footer class="version-footer">Version 2.5 · Geometry Only Diagnostic</footer>
   
 
-<section id="cellDiagnosticPanel" class="panel hidden">
+
+<section id="geometryDiagnosticPanel" class="panel hidden">
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Actual OCR Cell Crops</h2>
+      <h2>18 Geometry Crops — No OCR Yet</h2>
     </div>
-    <button id="backFromCellsButton" class="secondary" type="button">Back</button>
+    <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>These are the exact hole images sent to OCR. Each tile shows the cropped image and the digit returned for that hole.</p>
-  <div id="cellDiagnosticMeta" class="status"></div>
-  <div id="cellDiagnosticGrid" class="cell-diagnostic-grid"></div>
-  <button id="continueFromCellsButton" class="primary" type="button">Continue to normal review</button>
+  <p>v2.5 uses one AI call to locate the first handwritten player row, then crops all 18 cells locally. No digit recognition is performed.</p>
+  <div id="geometryDiagnosticMeta" class="status"></div>
+  <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>
 
-<section id="rawOcrPanel" class="panel hidden">
-  <div class="panel-header">
-    <div>
-      <div class="eyebrow">DEBUG</div>
-      <h2>Raw OCR response</h2>
-    </div>
-    <button id="backFromRawButton" class="secondary">Back</button>
-  </div>
-  <p>This is the exact JSON returned by the Netlify OCR function before the app normalizes or displays scores.</p>
-  <pre id="rawOcrOutput" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:12px;border-radius:12px;font-size:12px;"></pre>
-  <button id="continueFromRawButton" class="primary">Continue to normal review</button>
-</section>
 </main>
 
   <dialog id="photoDialog">

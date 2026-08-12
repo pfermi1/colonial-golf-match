@@ -93,15 +93,11 @@ const backFromComparisonButton = document.querySelector('#backFromComparisonButt
 const holeDialog = document.querySelector('#holeDialog');
 const holeDialogContent = document.querySelector('#holeDialogContent');
 const closeHoleDialog = document.querySelector('#closeHoleDialog');
-const cellDiagnosticPanel = document.querySelector('#cellDiagnosticPanel');
-const cellDiagnosticGrid = document.querySelector('#cellDiagnosticGrid');
-const cellDiagnosticMeta = document.querySelector('#cellDiagnosticMeta');
-const backFromCellsButton = document.querySelector('#backFromCellsButton');
-const continueFromCellsButton = document.querySelector('#continueFromCellsButton');
-const rawOcrPanel = document.querySelector('#rawOcrPanel');
-const rawOcrOutput = document.querySelector('#rawOcrOutput');
-const backFromRawButton = document.querySelector('#backFromRawButton');
-const continueFromRawButton = document.querySelector('#continueFromRawButton');
+const geometryDiagnosticPanel = document.querySelector('#geometryDiagnosticPanel');
+const geometryDiagnosticGrid = document.querySelector('#geometryDiagnosticGrid');
+const geometryDiagnosticMeta = document.querySelector('#geometryDiagnosticMeta');
+const backFromGeometryButton = document.querySelector('#backFromGeometryButton');
+
 let pendingRawPayload = null;
 
 const STORAGE_KEY = 'colonialGolfMatchCardsV04';
@@ -164,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading each player row conservatively — circles are treated as birdie marks and uncertain holes stay blank...';
+  status.textContent = 'Locating the first handwritten player row and building 18 geometry crops...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -173,10 +169,8 @@ readButton.addEventListener('click', async () => {
     });
     if (!response.ok) throw new Error(await readErrorResponse(response));
       const payload = await response.json();
-    pendingRawPayload = payload;
-    rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
-    renderCellDiagnostics(payload);
-    showPanel(cellDiagnosticPanel);
+    renderGeometryDiagnostics(payload);
+    showPanel(geometryDiagnosticPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -895,3 +889,40 @@ continueFromCellsButton?.addEventListener('click', () => {
   showPanel(rawOcrPanel);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+
+function renderGeometryDiagnostics(payload) {
+  geometryDiagnosticGrid.innerHTML = '';
+  const cells = payload?.debug?.cells || [];
+  const geometry = payload?.debug?.geometry || {};
+  const playerName = payload?.playerName || 'First visible player';
+
+  geometryDiagnosticMeta.textContent =
+    `${playerName} — ${cells.length} local crops. ` +
+    `Front: ${JSON.stringify(geometry.front)} · Back: ${JSON.stringify(geometry.back)}`;
+
+  if (!cells.length) {
+    geometryDiagnosticGrid.innerHTML =
+      '<div class="status">No cells were cropped. The row geometry was not confident enough.</div>';
+    return;
+  }
+
+  for (const cell of cells) {
+    const tile = document.createElement('div');
+    tile.className = 'cell-diagnostic-tile';
+
+    const img = document.createElement('img');
+    img.src = cell.imageDataUrl;
+    img.alt = `Hole ${cell.hole} geometry crop`;
+    tile.appendChild(img);
+
+    const hole = document.createElement('div');
+    hole.className = 'cell-diagnostic-hole';
+    hole.textContent = `Hole ${cell.hole}`;
+    tile.appendChild(hole);
+
+    geometryDiagnosticGrid.appendChild(tile);
+  }
+}
+
+backFromGeometryButton?.addEventListener('click', () => showPanel(uploadPanel));
