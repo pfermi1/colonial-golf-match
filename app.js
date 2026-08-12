@@ -242,7 +242,7 @@ closeDialog.addEventListener('click', () => photoDialog.close());
 closeHoleDialog.addEventListener('click', () => holeDialog.close());
 
 function showPanel(panel) {
-  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel, rawOcrPanel].forEach(item => item.classList.add('hidden'));
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
   panel.classList.remove('hidden');
 }
 

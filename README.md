@@ -103,3 +103,6 @@ Flow:
 4. The app shows the 18 images for visual verification.
 
 Acceptance criterion: each tile must show the correct handwritten score box for the same player, in Hole 1-18 order.
+
+## v2.5.1
+Hotfix only. Removes stale JavaScript references to diagnostic panels deleted in v2.5, including `rawOcrPanel`, so Add scorecard can open the upload screen again. The v2.5 geometry-only server diagnostic is otherwise unchanged.
