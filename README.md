@@ -387,3 +387,14 @@ Orientation is now split into two separate decisions:
    HOLE 1-9 OUT 10-18 IN TOT HCP NET.
 
 Handwriting is ignored during the 180-degree decision. This is intended to prevent the upside-down normalization seen in v5.8.
+
+## v5.9 Grid-Derived Geometry
+No score OCR.
+
+Instead of fixed row/column template ratios:
+- the card is normalized upright;
+- vision derives the four handwritten player-row bands from the actual printed grid;
+- vision derives 18 actual hole-column centers from the printed cell boundaries, excluding OUT/IN/TOT/HCP/NET;
+- the browser shows the resulting 72 cell crops.
+
+Acceptance criterion: every tile should contain exactly one handwritten score from the correct player/hole.

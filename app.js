@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.8.1 startup
+showPanel(roundPanel); // v5.9 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.8.1 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.9 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.8.1 startup
+showPanel(roundPanel); // v5.9 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.8.1 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.9 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.8.1 startup
+showPanel(roundPanel); // v5.9 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v5.8.1 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.8.1 startup
+showPanel(roundPanel); // v5.9 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.8.1 startup
+showPanel(roundPanel); // v5.9 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -870,21 +870,21 @@ function renderCellDiagnostics(payload) {
 
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
-  const previewUrl = debug.normalizedCardDataUrl || debug.uprightImageDataUrl || '';
+  const previewUrl = debug.normalizedCardDataUrl || '';
 
   if (cellDiagnosticMeta) {
-    const landscapeRotation = debug.landscapeRotationClockwiseDegrees ?? '?';
-    const flip180 = debug.flip180Degrees ?? '?';
-    const rotation = debug.rotationClockwiseDegrees ?? '?';
+    const grid = debug.grid || {};
+    const rowCount = Array.isArray(grid.rows) ? grid.rows.length : 0;
+    const holeCount = Array.isArray(grid.holeCenters) ? grid.holeCenters.length : 0;
+
     if (!debug.cardBox) {
+      cellDiagnosticMeta.textContent = 'Physical card detection failed.';
+    } else if (rowCount !== 4 || holeCount !== 18) {
       cellDiagnosticMeta.textContent =
-        `Card detection failed after landscape ${landscapeRotation}° + header flip ${flip180}° (total ${rotation}°).`;
-    } else if (!rows.length) {
-      cellDiagnosticMeta.textContent =
-        `Card detected after landscape ${landscapeRotation}° + header flip ${flip180}° (total ${rotation}°), but no template rows were returned.`;
+        `Card normalized, but grid geometry is incomplete: ${rowCount} player rows, ${holeCount} hole columns.`;
     } else {
       cellDiagnosticMeta.textContent =
-        `Landscape ${landscapeRotation}° · header flip ${flip180}° · total ${rotation}° · normalized card 1800×1050 · ${rows.length} fixed rows · ${rows.length * 18} crops.`;
+        `Actual grid-derived geometry: ${rowCount} player rows × ${holeCount} hole columns = ${rowCount * holeCount} crops.`;
     }
   }
 
@@ -893,9 +893,7 @@ function renderCellDiagnostics(payload) {
     previewSection.className = 'cell-diagnostic-player';
 
     const title = document.createElement('h3');
-    title.textContent = debug.normalizedCardDataUrl
-      ? 'Normalized upright card'
-      : 'Upright source image';
+    title.textContent = 'Normalized upright card';
 
     const img = document.createElement('img');
     img.src = previewUrl;
@@ -917,7 +915,7 @@ function renderCellDiagnostics(payload) {
     const meta = document.createElement('p');
     meta.className = 'help';
     meta.textContent =
-      `Fixed template row ${rowIndex + 1} · Y ratio ${row?.rowYRatio ?? '?'} · center ${row?.rowCenterY ?? '?'}`;
+      `Derived row ${rowIndex + 1} · top ${row?.rowTop ?? '?'} · bottom ${row?.rowBottom ?? '?'} · center ${row?.rowCenterY ?? '?'}`;
 
     const grid = document.createElement('div');
     grid.className = 'cell-diagnostic-grid';
@@ -946,7 +944,7 @@ function renderCellDiagnostics(payload) {
   if (!previewUrl && !rows.length) {
     const error = document.createElement('p');
     error.className = 'help';
-    error.textContent = 'No upright card preview or template crops were returned by the server.';
+    error.textContent = 'No normalized card or derived-grid crops were returned.';
     cellDiagnosticPlayers.appendChild(error);
   }
 }
