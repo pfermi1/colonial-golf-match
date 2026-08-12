@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 4.0 · Handwritten-Name Row Lock</p>
+      <p class="help compact-help">Version 5.0 · Whole-Card Vision</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,21 +104,22 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 4.0 · Handwritten-Name Row Lock</footer>
+    <footer class="version-footer">Version 5.0 · Whole-Card Vision</footer>
   
 
 
-<section id="geometryDiagnosticPanel" class="panel hidden">
+
+<section id="rawOcrPanel" class="panel hidden">
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Handwritten-Name Row-Locked Crops</h2>
+      <h2>Whole-Card Vision Response</h2>
     </div>
-    <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
+    <button id="backFromRawButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v4.0 keeps the perspective-straightened card and stabilized X geometry, then locks score-row Y directly to the transformed handwritten player-name center. No PAR/HANDICAP or darkness-based row scan. Still no digit OCR.</p>
-  <div id="geometryDiagnosticMeta" class="status"></div>
-  <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
+  <p>This is the exact whole-card response returned before the normal review screen.</p>
+  <pre id="rawOcrOutput"></pre>
+  <button id="continueFromRawButton" class="primary" type="button">Continue to normal review</button>
 </section>
 
 </main>

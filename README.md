@@ -258,3 +258,14 @@ Changes:
 - Use that exact transformed Y as the score-row center for all 18 crops.
 
 Acceptance criterion: all 18 crops should land on the same handwritten player row as the detected name, without selecting printed HANDICAP/PAR/yardage rows.
+
+## v5.0 Whole-Card Vision
+Major architecture reset.
+
+Instead of locating/cropping cells first, v5.0 sends the whole scorecard photograph in one vision request. The model:
+1. identifies every handwritten player name in the main player area;
+2. reads exactly 18 handwritten scores per player;
+3. ignores printed PAR/HANDICAP/yardage rows and OUT/IN/TOT/HCP/NET;
+4. returns uncertain holes as null/yellow-review candidates.
+
+This is intended to use the same full-card context that makes manual visual reading much easier than tiny-cell OCR.

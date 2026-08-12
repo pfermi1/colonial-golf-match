@@ -1,22 +1,14 @@
-const sharp = require('sharp');
-
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
-// Fixed normalized Colonial hole centers on the STRAIGHTENED card.
-// The perspective warp makes these independent of phone framing/skew.
-const HOLE_X_RATIOS = [
-  0.121, 0.155, 0.189, 0.223, 0.257, 0.291, 0.325, 0.359, 0.393,
-  0.515, 0.549, 0.583, 0.617, 0.651, 0.685, 0.719, 0.753, 0.787
-];
-
-const WARP_WIDTH = 1800;
-const WARP_HEIGHT = 1050;
-
 exports.handler = async function handler(event) {
-  if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
+  if (event.httpMethod !== 'POST') {
+    return reply(405, { error: 'Method not allowed.' });
+  }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
+  if (!apiKey) {
+    return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
+  }
 
   try {
     const body = JSON.parse(event.body || '{}');
@@ -26,436 +18,108 @@ exports.handler = async function handler(event) {
       return reply(400, { error: 'A scorecard image is required.' });
     }
 
-    const inputBuffer = dataUrlToBuffer(imageDataUrl);
+    const prompt = `
+You are reading a photographed Colonial Golf Club scorecard.
 
-    // Normalize EXIF orientation first.
-    const normalizedBuffer = await sharp(inputBuffer)
-      .rotate()
-      .resize({ width: 2200, height: 2200, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 92 })
-      .toBuffer();
+Read the WHOLE CARD visually. Do not crop mentally to printed rows.
 
-    const meta = await sharp(normalizedBuffer).metadata();
-    const srcWidth = meta.width;
-    const srcHeight = meta.height;
-    const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
+Your job:
+1) Identify every handwritten player name in the main player-score area.
+2) For each handwritten player, read exactly 18 handwritten hole scores in left-to-right order:
+   holes 1-9, then holes 10-18.
+3) Ignore all printed information:
+   - printed PAR
+   - printed HANDICAP
+   - printed yardages
+   - printed tee rows
+   - printed hole numbers
+   - printed OUT / IN / TOT / HCP / NET labels
+4) Ignore handwritten OUT, IN, and total sums; return only the 18 individual hole scores.
+5) If a score is circled for a birdie, ignore the circle and read the digit inside it.
+6) Do not reuse names or scores from previous images. Use THIS image only.
+7) If a hole is unclear, return null and mark that hole uncertain instead of guessing.
+8) Normal score digits are 1-7. A 1 is allowed but should always be marked uncertain=true for confirmation.
+9) Return players in top-to-bottom order as they appear on the card.
 
-    // ONE vision call:
-    // locate four physical card corners + first handwritten player-name box.
-    const geometry = await locateCardCornersAndPlayerName(apiKey, normalizedDataUrl);
-
-    if (!geometry.corners || !geometry.nameBox) {
-      return reply(200, {
-        ocrMode: 'handwritten-name-row-lock-v4.0',
-        playerName: geometry.name || '',
-        message: 'Could not confidently locate all four card corners and the first player name.',
-        debug: { geometry, cells: [] }
-      });
+Return JSON only in this exact structure:
+{
+  "players": [
+    {
+      "name": "string",
+      "scores": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "uncertainHoles": [1]
     }
+  ]
+}
 
-    // Convert source normalized coordinates to pixels.
-    const srcCorners = {
-      tl: normPointToPixel(geometry.corners.tl, srcWidth, srcHeight),
-      tr: normPointToPixel(geometry.corners.tr, srcWidth, srcHeight),
-      br: normPointToPixel(geometry.corners.br, srcWidth, srcHeight),
-      bl: normPointToPixel(geometry.corners.bl, srcWidth, srcHeight)
-    };
+Important:
+- scores must contain exactly 18 entries per player.
+- uncertainHoles uses 1-based hole numbers.
+- Do not invent placeholder players.
+`;
 
-    // Perspective-warp card into a fixed rectangle.
-    const warp = await perspectiveWarp(
-      normalizedBuffer,
-      srcWidth,
-      srcHeight,
-      srcCorners,
-      WARP_WIDTH,
-      WARP_HEIGHT
-    );
+    const raw = await callVision(apiKey, [
+      { type: 'input_text', text: prompt },
+      { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
+    ], 1200);
 
-    // Transform the detected handwritten-name center into the straightened card.
-    const nameCenterSrc = normPointToPixel({
-      x: (geometry.nameBox.left + geometry.nameBox.right) / 2,
-      y: (geometry.nameBox.top + geometry.nameBox.bottom) / 2
-    }, srcWidth, srcHeight);
+    const text = extractOutputText(raw);
+    const parsed = parseJson(text);
 
-    const nameCenterWarp = applyHomography(warp.srcToDstH, nameCenterSrc.x, nameCenterSrc.y);
-
-    // v4.0 key change:
-    // Lock the score-row Y directly to the transformed handwritten player-name box.
-    // No row scan, no PAR/HANDICAP inference, no darkness heuristic.
-    const transformedNameCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
-
-    // Project the exact player-name row horizontally across the normalized card.
-    const rowCenterY = transformedNameCenterY;
-
-    // Use a slightly taller crop so the complete handwritten digit is visible while
-    // staying centered on the player's name row.
-    const rowCropHeight = 56;
-    const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, WARP_HEIGHT - 2);
-    const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, WARP_HEIGHT);
-
-    // Determine normal hole width from the straightened template.
-    const normalSpacing = Math.round(0.034 * WARP_WIDTH);
-    const cropWidth = Math.max(34, Math.round(normalSpacing * 0.78));
-
-    const cells = [];
-
-    for (let i = 0; i < 18; i++) {
-      const hole = i + 1;
-      const cx = Math.round(HOLE_X_RATIOS[i] * WARP_WIDTH);
-      const halfW = Math.floor(cropWidth / 2);
-
-      const left = clamp(cx - halfW, 0, WARP_WIDTH - 1);
-      const right = clamp(cx + halfW, left + 1, WARP_WIDTH);
-
-      const cellBuffer = await sharp(warp.buffer)
-        .extract({
-          left,
-          top: rowTop,
-          width: Math.max(1, right - left),
-          height: Math.max(1, rowBottom - rowTop)
-        })
-        .resize({ width: 240, height: 180, fit: 'contain', background: '#ffffff' })
-        .jpeg({ quality: 94 })
-        .toBuffer();
-
-      cells.push({
-        hole,
-        xRatio: HOLE_X_RATIOS[i],
-        imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
-      });
-    }
-
-    // Include a small straightened-card preview for debugging.
-    const preview = await sharp(warp.buffer)
-      .resize({ width: 900 })
-      .jpeg({ quality: 82 })
-      .toBuffer();
+    const players = normalizePlayers(parsed?.players);
 
     return reply(200, {
-      ocrMode: 'handwritten-name-row-lock-v4.0',
-      playerName: geometry.name || '',
+      players,
       debug: {
-        geometry,
-        transformedNameCenterY,
-        rowLockMethod: 'transformed-handwritten-name-center',
-        rowCenterY,
-        rowCropHeight,
-        cropWidth,
-        warpSize: { width: WARP_WIDTH, height: WARP_HEIGHT },
-        straightenedCardDataUrl: `data:image/jpeg;base64,${preview.toString('base64')}`,
-        cells
-      }
+        rawWholeCardResponse: text
+      },
+      ocrMode: 'whole-card-vision-v5.0'
     });
   } catch (error) {
-    console.error('v4.0 name-row-lock failure:', error);
+    console.error('v5.0 whole-card vision failure:', error);
     return reply(500, {
-      error: error?.message || 'v4.0 name-row-lock diagnostic failed.',
+      error: error?.message || 'Whole-card vision failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'handwritten-name-row-lock-v4.0'
+      ocrMode: 'whole-card-vision-v5.0'
     });
   }
 };
 
-async function locateCardCornersAndPlayerName(apiKey, imageDataUrl) {
-  const prompt = `
-GEOMETRY-ONLY task on ONE photographed Colonial Golf Club scorecard.
+function normalizePlayers(source) {
+  if (!Array.isArray(source)) return [];
 
-Do NOT transcribe score digits.
+  const players = [];
 
-Find the FOUR OUTER PHYSICAL CORNERS of the scorecard itself:
-- tl = top-left corner
-- tr = top-right corner
-- br = bottom-right corner
-- bl = bottom-left corner
+  for (const item of source) {
+    if (!item || typeof item !== 'object') continue;
 
-Also find the FIRST handwritten player name above the printed PAR row that has handwritten scores on the same row.
+    const name = String(item.name || '').trim();
+    if (!name) continue;
 
-Return:
-- name
-- corners as normalized points 0-1000 relative to the full photo
-- nameBox as a tight normalized box around only the handwritten player name
+    const rawScores = Array.isArray(item.scores) ? item.scores : [];
+    const scores = Array.from({ length: 18 }, (_, i) => {
+      const n = Number(rawScores[i]);
+      return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
+    });
 
-CRITICAL:
-- Corners must follow the actual blue/white physical card edges, not the keyboard/table/knee/background.
-- Keep corner order exactly tl, tr, br, bl.
-- nameBox must surround handwritten player letters only.
-- Do not return the score row as nameBox.
-- Do not use printed HANDICAP/PAR labels.
+    const suppliedUncertain = Array.isArray(item.uncertainHoles)
+      ? item.uncertainHoles.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 18)
+      : [];
 
-Return JSON only:
-{
-  "name":"",
-  "corners":{
-    "tl":{"x":0,"y":0},
-    "tr":{"x":0,"y":0},
-    "br":{"x":0,"y":0},
-    "bl":{"x":0,"y":0}
-  },
-  "nameBox":{"left":0,"top":0,"right":0,"bottom":0}
-}`;
+    const uncertain = new Set(suppliedUncertain);
 
-  const raw = await callVision(apiKey, [
-    { type: 'input_text', text: prompt },
-    { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 650);
-
-  const parsed = parseJson(extractOutputText(raw));
-  const name = String(parsed?.name || '').trim();
-  const nameBox = normalizeBox(parsed?.nameBox, 20, 8);
-  const corners = normalizeCorners(parsed?.corners);
-
-  return { name, corners, nameBox };
-}
-
-
-async function locateHandwrittenScoreRow(warpBuffer, transformedNameCenterY, width, height) {
-  // Work in grayscale on the already perspective-normalized card.
-  const { data, info } = await sharp(warpBuffer)
-    .grayscale()
-    .normalize()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  // Player scores occupy the central score-grid region, not the name column or totals.
-  const x0 = Math.floor(width * 0.14);
-  const x1 = Math.floor(width * 0.82);
-
-  // Search a practical band below the transformed name center.
-  // We expect the score digits to sit on the same player row, but perspective/name-box
-  // detection can shift by several dozen pixels.
-  const yStart = clamp(Math.round(transformedNameCenterY - 10), 0, height - 1);
-  const yEnd = clamp(Math.round(transformedNameCenterY + 140), yStart + 1, height - 1);
-
-  const darkThreshold = 150;
-  const rowScores = [];
-
-  for (let y = yStart; y <= yEnd; y++) {
-    let dark = 0;
-    let sampled = 0;
-
-    for (let x = x0; x < x1; x += 2) {
-      const v = data[y * info.width + x];
-      if (v < darkThreshold) dark++;
-      sampled++;
+    for (let i = 0; i < 18; i++) {
+      if (scores[i] == null || scores[i] === 1) uncertain.add(i + 1);
     }
 
-    rowScores.push({
-      y,
-      density: sampled ? dark / sampled : 0
+    players.push({
+      name,
+      scores,
+      uncertainHoles: [...uncertain].sort((a, b) => a - b)
     });
   }
 
-  // Smooth over neighboring scanlines so thin grid lines do not win by themselves.
-  const smoothed = rowScores.map((r, i) => {
-    let sum = 0, n = 0;
-    for (let j = Math.max(0, i - 3); j <= Math.min(rowScores.length - 1, i + 3); j++) {
-      sum += rowScores[j].density;
-      n++;
-    }
-    return { y: r.y, density: sum / n };
-  });
-
-  // Score handwriting creates a broader local dark band than a single printed grid line.
-  // Prefer candidates below the name center and reject very-near single-line peaks.
-  let best = null;
-  for (const r of smoothed) {
-    if (r.y < transformedNameCenterY - 2) continue;
-
-    // Broadness: compare surrounding +/- 6 px densities.
-    const idx = r.y - yStart;
-    const leftIdx = Math.max(0, idx - 6);
-    const rightIdx = Math.min(smoothed.length - 1, idx + 6);
-    let broad = 0;
-    for (let j = leftIdx; j <= rightIdx; j++) broad += smoothed[j].density;
-    broad /= (rightIdx - leftIdx + 1);
-
-    // Favor broader dark regions, mildly prefer closer rows.
-    const distancePenalty = Math.max(0, r.y - transformedNameCenterY) * 0.00035;
-    const score = broad - distancePenalty;
-
-    if (!best || score > best.score) {
-      best = { y: r.y, score, density: r.density, broad };
-    }
-  }
-
-  if (!best) {
-    return {
-      rowCenterY: clamp(transformedNameCenterY + 40, 0, height - 1),
-      method: 'fallback',
-      confidence: 0
-    };
-  }
-
-  return {
-    rowCenterY: best.y,
-    method: 'grayscale-row-scan',
-    confidence: Number(best.broad.toFixed(4))
-  };
-}
-
-async function perspectiveWarp(srcBuffer, srcWidth, srcHeight, srcCorners, dstWidth, dstHeight) {
-  const dstCorners = {
-    tl: { x: 0, y: 0 },
-    tr: { x: dstWidth - 1, y: 0 },
-    br: { x: dstWidth - 1, y: dstHeight - 1 },
-    bl: { x: 0, y: dstHeight - 1 }
-  };
-
-  // Homographies both directions.
-  const srcToDstH = computeHomography(
-    [srcCorners.tl, srcCorners.tr, srcCorners.br, srcCorners.bl],
-    [dstCorners.tl, dstCorners.tr, dstCorners.br, dstCorners.bl]
-  );
-  const dstToSrcH = computeHomography(
-    [dstCorners.tl, dstCorners.tr, dstCorners.br, dstCorners.bl],
-    [srcCorners.tl, srcCorners.tr, srcCorners.br, srcCorners.bl]
-  );
-
-  // Decode source to raw RGB.
-  const { data: srcRaw, info } = await sharp(srcBuffer)
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const channels = info.channels;
-  const out = Buffer.alloc(dstWidth * dstHeight * 3, 255);
-
-  // Bilinear inverse mapping.
-  for (let y = 0; y < dstHeight; y++) {
-    for (let x = 0; x < dstWidth; x++) {
-      const p = applyHomography(dstToSrcH, x, y);
-      const sx = p.x;
-      const sy = p.y;
-
-      if (sx < 0 || sy < 0 || sx >= srcWidth - 1 || sy >= srcHeight - 1) continue;
-
-      const x0 = Math.floor(sx), y0 = Math.floor(sy);
-      const x1 = x0 + 1, y1 = y0 + 1;
-      const dx = sx - x0, dy = sy - y0;
-
-      for (let c = 0; c < 3; c++) {
-        const p00 = srcRaw[(y0 * srcWidth + x0) * channels + c];
-        const p10 = srcRaw[(y0 * srcWidth + x1) * channels + c];
-        const p01 = srcRaw[(y1 * srcWidth + x0) * channels + c];
-        const p11 = srcRaw[(y1 * srcWidth + x1) * channels + c];
-
-        const top = p00 * (1 - dx) + p10 * dx;
-        const bot = p01 * (1 - dx) + p11 * dx;
-        out[(y * dstWidth + x) * 3 + c] = Math.round(top * (1 - dy) + bot * dy);
-      }
-    }
-  }
-
-  const warpedBuffer = await sharp(out, {
-    raw: { width: dstWidth, height: dstHeight, channels: 3 }
-  }).jpeg({ quality: 94 }).toBuffer();
-
-  return { buffer: warpedBuffer, srcToDstH, dstToSrcH };
-}
-
-function computeHomography(src, dst) {
-  // Solve 8 unknowns with h33 fixed to 1.
-  const A = [];
-  const b = [];
-
-  for (let i = 0; i < 4; i++) {
-    const x = src[i].x, y = src[i].y;
-    const u = dst[i].x, v = dst[i].y;
-
-    A.push([x, y, 1, 0, 0, 0, -u*x, -u*y]);
-    b.push(u);
-    A.push([0, 0, 0, x, y, 1, -v*x, -v*y]);
-    b.push(v);
-  }
-
-  const h = solveLinearSystem(A, b);
-  return [
-    h[0], h[1], h[2],
-    h[3], h[4], h[5],
-    h[6], h[7], 1
-  ];
-}
-
-function solveLinearSystem(A, b) {
-  const n = b.length;
-  const M = A.map((row, i) => [...row, b[i]]);
-
-  for (let col = 0; col < n; col++) {
-    let pivot = col;
-    for (let r = col + 1; r < n; r++) {
-      if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
-    }
-    if (Math.abs(M[pivot][col]) < 1e-10) throw new Error('Perspective transform is singular.');
-
-    [M[col], M[pivot]] = [M[pivot], M[col]];
-
-    const div = M[col][col];
-    for (let c = col; c <= n; c++) M[col][c] /= div;
-
-    for (let r = 0; r < n; r++) {
-      if (r === col) continue;
-      const factor = M[r][col];
-      for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
-    }
-  }
-
-  return M.map(row => row[n]);
-}
-
-function applyHomography(H, x, y) {
-  const d = H[6]*x + H[7]*y + H[8];
-  return {
-    x: (H[0]*x + H[1]*y + H[2]) / d,
-    y: (H[3]*x + H[4]*y + H[5]) / d
-  };
-}
-
-function normalizeCorners(corners) {
-  if (!corners || typeof corners !== 'object') return null;
-  const keys = ['tl','tr','br','bl'];
-  const out = {};
-
-  for (const k of keys) {
-    const p = corners[k];
-    if (!p) return null;
-    const x = Number(p.x), y = Number(p.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    if (x < 0 || x > 1000 || y < 0 || y > 1000) return null;
-    out[k] = { x, y };
-  }
-
-  // Basic ordering sanity.
-  if (!(out.tl.x < out.tr.x && out.bl.x < out.br.x)) return null;
-  if (!(out.tl.y < out.bl.y && out.tr.y < out.br.y)) return null;
-
-  return out;
-}
-
-function normalizeBox(box, minWidth, minHeight) {
-  if (!box || typeof box !== 'object') return null;
-  const left = Number(box.left);
-  const top = Number(box.top);
-  const right = Number(box.right);
-  const bottom = Number(box.bottom);
-
-  if (![left, top, right, bottom].every(Number.isFinite)) return null;
-  if (left < 0 || top < 0 || right > 1000 || bottom > 1000) return null;
-  if (right - left < minWidth || bottom - top < minHeight) return null;
-
-  return { left, top, right, bottom };
-}
-
-function normPointToPixel(p, width, height) {
-  return {
-    x: clamp(p.x / 1000 * width, 0, width - 1),
-    y: clamp(p.y / 1000 * height, 0, height - 1)
-  };
-}
-
-function dataUrlToBuffer(dataUrl) {
-  const comma = dataUrl.indexOf(',');
-  if (comma < 0) throw new Error('Invalid image data.');
-  return Buffer.from(dataUrl.slice(comma + 1), 'base64');
+  return players;
 }
 
 async function callVision(apiKey, content, maxOutputTokens) {
@@ -473,15 +137,18 @@ async function callVision(apiKey, content, maxOutputTokens) {
   });
 
   const raw = await apiResponse.json();
+
   if (!apiResponse.ok) {
     const message = raw?.error?.message || `OpenAI request failed (${apiResponse.status}).`;
     throw new Error(message);
   }
+
   return raw;
 }
 
 function extractOutputText(response) {
   if (typeof response.output_text === 'string') return response.output_text;
+
   const parts = [];
   for (const item of response.output || []) {
     for (const content of item.content || []) {
@@ -503,13 +170,11 @@ function parseJson(text) {
   } catch (_) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v4.0 geometry locator returned an unreadable response.');
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('The whole-card reader returned an unreadable response.');
   }
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function reply(statusCode, body) {

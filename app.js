@@ -93,10 +93,12 @@ const backFromComparisonButton = document.querySelector('#backFromComparisonButt
 const holeDialog = document.querySelector('#holeDialog');
 const holeDialogContent = document.querySelector('#holeDialogContent');
 const closeHoleDialog = document.querySelector('#closeHoleDialog');
-const geometryDiagnosticPanel = document.querySelector('#geometryDiagnosticPanel');
-const geometryDiagnosticGrid = document.querySelector('#geometryDiagnosticGrid');
-const geometryDiagnosticMeta = document.querySelector('#geometryDiagnosticMeta');
-const backFromGeometryButton = document.querySelector('#backFromGeometryButton');
+const rawOcrPanel = document.querySelector('#rawOcrPanel');
+const rawOcrOutput = document.querySelector('#rawOcrOutput');
+const backFromRawButton = document.querySelector('#backFromRawButton');
+const continueFromRawButton = document.querySelector('#continueFromRawButton');
+let pendingRawPayload = null;
+
 
 let pendingRawPayload = null;
 
@@ -160,7 +162,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v4.0 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.0 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -169,8 +171,9 @@ readButton.addEventListener('click', async () => {
     });
     if (!response.ok) throw new Error(await readErrorResponse(response));
       const payload = await response.json();
-    renderGeometryDiagnostics(payload);
-    showPanel(geometryDiagnosticPanel);
+    pendingRawPayload = payload;
+    rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
+    showPanel(rawOcrPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -244,6 +247,7 @@ closeHoleDialog.addEventListener('click', () => holeDialog.close());
 function showPanel(panel) {
   [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
   panel.classList.remove('hidden');
+  rawOcrPanel?.classList.add('hidden');
 }
 
 function normalizeData(data) {
@@ -891,46 +895,5 @@ continueFromCellsButton?.addEventListener('click', () => {
 });
 
 
-function renderGeometryDiagnostics(payload) {
-  geometryDiagnosticGrid.innerHTML = '';
-  const cells = payload?.debug?.cells || [];
-  const geometry = payload?.debug?.geometry || {};
-  const playerName = payload?.playerName || 'First visible player';
 
-  const cardBox = payload?.debug?.geometry?.cardBox || null;
-  const nameBox = payload?.debug?.geometry?.nameBox || null;
-  const nameCenterY = payload?.debug?.nameCenterY;
-  const yOffset = payload?.debug?.yOffset;
-  const transformedNameCenterY = payload?.debug?.transformedNameCenterY;
-  const rowCenterY = payload?.debug?.rowCenterY;
-  const warpSize = payload?.debug?.warpSize || null;
-  geometryDiagnosticMeta.textContent =
-    `${playerName} — ${cells.length} crops. ` +
-    `Card normalized to: ${JSON.stringify(warpSize)} · Name: ${JSON.stringify(nameBox)} · ` +
-    `Name center Y: ${nameCenterY} · Y offset: ${yOffset} · Name center on warped card: ${transformedNameCenterY} · Row lock: ${payload?.debug?.rowLockMethod} · Crop center Y: ${rowCenterY}`;
 
-  if (!cells.length) {
-    geometryDiagnosticGrid.innerHTML =
-      '<div class="status">No cells were cropped. The row geometry was not confident enough.</div>';
-    return;
-  }
-
-  for (const cell of cells) {
-    const tile = document.createElement('div');
-    tile.className = 'cell-diagnostic-tile';
-
-    const img = document.createElement('img');
-    img.src = cell.imageDataUrl;
-    img.alt = `Hole ${cell.hole} geometry crop`;
-    tile.appendChild(img);
-
-    const hole = document.createElement('div');
-    hole.className = 'cell-diagnostic-hole';
-    hole.textContent = `Hole ${cell.hole}`;
-    tile.appendChild(hole);
-
-    geometryDiagnosticGrid.appendChild(tile);
-  }
-}
-
-backFromGeometryButton?.addEventListener('click', () => showPanel(uploadPanel));
