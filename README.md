@@ -272,3 +272,10 @@ This is intended to use the same full-card context that makes manual visual read
 
 
 v5.0.1 hotfix: fixes a duplicate JavaScript declaration that could stop app initialization, and makes Add scorecard directly open the existing-photo picker on iOS.
+
+## v5.0.2 Startup Panel Hotfix
+- Explicitly opens the round panel at startup.
+- Makes panel switching null-safe.
+- Fixes raw diagnostic panel switching.
+- Adds an on-screen JavaScript startup error message instead of silently showing a blank page.
+- Keeps the v5.0 whole-card vision reader unchanged.

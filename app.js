@@ -110,6 +110,7 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
+showPanel(roundPanel); // v5.0.2 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
@@ -128,6 +129,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
+showPanel(roundPanel); // v5.0.2 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -221,6 +223,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
+showPanel(roundPanel); // v5.0.2 startup
       renderBallCard(updated);
       return;
     }
@@ -240,6 +243,7 @@ confirmButton.addEventListener('click', () => {
   currentData = null;
   resetUpload();
   renderSavedCards();
+showPanel(roundPanel); // v5.0.2 startup
   showPanel(roundPanel);
 });
 
@@ -252,9 +256,10 @@ closeDialog.addEventListener('click', () => photoDialog.close());
 closeHoleDialog.addEventListener('click', () => holeDialog.close());
 
 function showPanel(panel) {
-  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
-  panel.classList.remove('hidden');
-  rawOcrPanel?.classList.add('hidden');
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel, rawOcrPanel]
+    .filter(Boolean)
+    .forEach(item => item.classList.add('hidden'));
+  if (panel) panel.classList.remove('hidden');
 }
 
 function normalizeData(data) {
@@ -402,6 +407,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
+showPanel(roundPanel); // v5.0.2 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -904,3 +910,20 @@ continueFromCellsButton?.addEventListener('click', () => {
 
 
 
+
+
+window.addEventListener('error', (event) => {
+  try {
+    if (roundPanel) {
+      roundPanel.classList.remove('hidden');
+    }
+    const existing = document.querySelector('#startupError');
+    if (!existing && roundPanel) {
+      const p = document.createElement('p');
+      p.id = 'startupError';
+      p.className = 'status';
+      p.textContent = `App startup error: ${event.message || 'unknown JavaScript error'}`;
+      roundPanel.prepend(p);
+    }
+  } catch (_) {}
+});
