@@ -1,3 +1,4 @@
+const V21_SINGLE_CELL_RULES = "\nV2.1 SINGLE-CELL DIGIT TEST:\n- First identify only the visible player rows in the current image.\n- For each visible player, preserve the 18 hole positions exactly.\n- Do not invent or pad missing players.\n- For digit recognition, treat each hole as an independent one-digit classification task.\n- Valid handwritten player scores are normally 2,3,4,5,6,7. A 1 is allowed only if it is clearly written; a circle around a digit is a birdie mark and must be ignored when reading the digit.\n- Never infer a score from neighboring holes, totals, par, handicap, or score patterns.\n- If a digit is not clear enough, return null for that hole rather than guessing.\n- Do not reorder, shift, smooth, or fill holes.\n";
 const V20_CLEAN_PLAYER_RULES = "\nV2.0 CLEAN PLAYER PIPELINE:\n- Return ONLY players whose names or handwritten score rows are visibly present in this image.\n- Never pad the result to 4 or 5 players.\n- Never reuse names or scores from prior requests, examples, defaults, or previous images.\n- If the image shows only one player row, return exactly one player object.\n- If a visible named player row has no scores, return that player's name with 18 null scores only if the row itself is visibly present.\n- Never fabricate a player to satisfy an expected foursome/fivesome count.\n";
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
@@ -38,7 +39,7 @@ exports.handler = async function handler(event) {
         rawNamesResponse: nameResult.rawText,
         rawPlayerRowResponses: rawRows
       },
-      ocrMode: 'clean-player-pipeline-v2.0',
+      ocrMode: 'single-cell-digit-test-v2.1',
       warning: players.some(p => p.uncertainHoles.length)
         ? 'Raw diagnostic mode. No prior-card examples are embedded in the prompts.'
         : undefined

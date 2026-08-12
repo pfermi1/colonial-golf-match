@@ -35,3 +35,19 @@ Primary diagnostic test:
 3. No Steve, Dec, Craig, Mike, or other player should appear unless visible in the current image.
 
 OCR accuracy itself is intentionally not re-architected in this build; v2.0 first removes the phantom-player/display contamination bug so future OCR tuning can be measured cleanly.
+
+
+## v2.1 focus
+This build keeps the clean-player pipeline from v2.0 and changes only the digit-reading instructions.
+
+The OCR is now told to treat each of the 18 hole positions as an independent one-digit classification task:
+- do not use neighboring scores;
+- do not shift or smooth values;
+- ignore birdie circles and read only the digit inside;
+- return null/blank when a digit is unclear;
+- never invent missing players or scores.
+
+Recommended test:
+1. Use the same cropped Paul-only photo from v2.0.
+2. Compare all 18 returned values against the known actual scores.
+3. Record the number of exact matches.

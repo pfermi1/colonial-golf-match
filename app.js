@@ -1,3 +1,4 @@
+const V2_1_SINGLE_CELL_DIAGNOSTIC = true;
 
 function normalizeOcrPlayersOnly(payload) {
   const rawPlayers = Array.isArray(payload?.players) ? payload.players : [];
@@ -792,4 +793,19 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('click', clearAllPriorCardStateV20);
     input.addEventListener('change', clearAllPriorCardStateV20);
   });
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addV21Banner = () => {
+    const review = document.querySelector('#review, #reviewScreen, #review-screen');
+    if (!review || review.querySelector('.v21-diagnostic-note')) return;
+    const note = document.createElement('div');
+    note.className = 'v21-diagnostic-note';
+    note.textContent = 'v2.1 test: each hole is treated as an independent one-digit read. Unclear holes should stay blank instead of being guessed.';
+    note.style.cssText = 'margin:12px 0;padding:10px 12px;border-radius:10px;background:#eef4f8;font-weight:600;font-size:14px;';
+    review.prepend(note);
+  };
+  const observer = new MutationObserver(addV21Banner);
+  observer.observe(document.body, {subtree:true, childList:true});
+  addV21Banner();
 });
