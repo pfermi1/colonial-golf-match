@@ -259,7 +259,7 @@ Changes:
 
 Acceptance criterion: all 18 crops should land on the same handwritten player row as the detected name, without selecting printed HANDICAP/PAR/yardage rows.
 
-## v5.0 Whole-Card Vision
+## v5.0.1 Whole-Card Vision
 Major architecture reset.
 
 Instead of locating/cropping cells first, v5.0 sends the whole scorecard photograph in one vision request. The model:
@@ -269,3 +269,6 @@ Instead of locating/cropping cells first, v5.0 sends the whole scorecard photogr
 4. returns uncertain holes as null/yellow-review candidates.
 
 This is intended to use the same full-card context that makes manual visual reading much easier than tiny-cell OCR.
+
+
+v5.0.1 hotfix: fixes a duplicate JavaScript declaration that could stop app initialization, and makes Add scorecard directly open the existing-photo picker on iOS.

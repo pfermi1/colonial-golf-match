@@ -100,7 +100,7 @@ const continueFromRawButton = document.querySelector('#continueFromRawButton');
 let pendingRawPayload = null;
 
 
-let pendingRawPayload = null;
+
 
 const STORAGE_KEY = 'colonialGolfMatchCardsV04';
 let imageDataUrl = '';
@@ -111,7 +111,14 @@ let savedCards = loadCards();
 
 renderSavedCards();
 
-addCardButton.addEventListener('click', () => showPanel(uploadPanel));
+addCardButton.addEventListener('click', () => {
+  resetUpload();
+  showPanel(uploadPanel);
+  // v5.0.1 hotfix: invoke the native picker synchronously from the user gesture.
+  // This avoids relying on a label->hidden-input handoff on iOS.
+  libraryInput.value = '';
+  libraryInput.click();
+});
 cancelUploadButton.addEventListener('click', () => {
   resetUpload();
   showPanel(roundPanel);
