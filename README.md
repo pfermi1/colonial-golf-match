@@ -321,3 +321,10 @@ New architecture:
 - All labeled cells are assembled into a clean diagnostic composite.
 - Pass 2 sees both the original card and the enlarged isolated-cell composite.
 - The reader must return null when a crop does not clearly contain one handwritten digit.
+
+## v5.6 Isolated-Cell Diagnostic
+Diagnostic build:
+- Keeps the v5.5 locator and isolated-cell reader.
+- Returns the exact enlarged image crop for every player/hole.
+- Shows those 18 crops per player on-screen with the score vision returned underneath each tile.
+- Lets us directly determine whether remaining errors come from crop geometry or digit interpretation.

@@ -97,6 +97,12 @@ const rawOcrPanel = document.querySelector('#rawOcrPanel');
 const rawOcrOutput = document.querySelector('#rawOcrOutput');
 const backFromRawButton = document.querySelector('#backFromRawButton');
 const continueFromRawButton = document.querySelector('#continueFromRawButton');
+const cellDiagnosticPanel = document.querySelector('#cellDiagnosticPanel');
+const cellDiagnosticPlayers = document.querySelector('#cellDiagnosticPlayers');
+const backFromCellDiagnosticButton = document.querySelector('#backFromCellDiagnosticButton');
+const continueFromCellDiagnosticButton = document.querySelector('#continueFromCellDiagnosticButton');
+let pendingCellDiagnosticPayload = null;
+
 let pendingRawPayload = null;
 
 
@@ -110,12 +116,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.5 startup
+showPanel(roundPanel); // v5.6 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.5 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.6 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -129,7 +135,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.5 startup
+showPanel(roundPanel); // v5.6 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -171,7 +177,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.5 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.6 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -182,7 +188,8 @@ readButton.addEventListener('click', async () => {
       const payload = await response.json();
     pendingRawPayload = payload;
     rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
-    showPanel(rawOcrPanel);
+    renderCellDiagnostics(payload);
+    showPanel(cellDiagnosticPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -223,7 +230,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.5 startup
+showPanel(roundPanel); // v5.6 startup
       renderBallCard(updated);
       return;
     }
@@ -243,7 +250,7 @@ showPanel(roundPanel); // v5.5 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.5 startup
+showPanel(roundPanel); // v5.6 startup
   showPanel(roundPanel);
 });
 
@@ -256,7 +263,7 @@ closeDialog.addEventListener('click', () => photoDialog.close());
 closeHoleDialog.addEventListener('click', () => holeDialog.close());
 
 function showPanel(panel) {
-  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel, rawOcrPanel]
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel, rawOcrPanel, cellDiagnosticPanel]
     .filter(Boolean)
     .forEach(item => item.classList.add('hidden'));
   if (panel) panel.classList.remove('hidden');
@@ -407,7 +414,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.5 startup
+showPanel(roundPanel); // v5.6 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -926,4 +933,13 @@ window.addEventListener('error', (event) => {
       roundPanel.prepend(p);
     }
   } catch (_) {}
+});
+
+
+backFromCellDiagnosticButton?.addEventListener('click', () => showPanel(uploadPanel));
+
+continueFromCellDiagnosticButton?.addEventListener('click', () => {
+  if (!pendingCellDiagnosticPayload) return;
+  applyReadResult(pendingCellDiagnosticPayload);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });

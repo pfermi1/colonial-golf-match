@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 5.5 · Isolated-Cell Vision</p>
+      <p class="help compact-help">Version 5.6 · Isolated-Cell Diagnostic</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -66,7 +66,26 @@
       <p id="status" class="status" aria-live="polite"></p>
     </section>
 
-    <section id="reviewPanel" class="card hidden">
+    
+<section id="cellDiagnosticPanel" class="card hidden">
+  <div class="review-head">
+    <div>
+      <p class="eyebrow">DEBUG</p>
+      <h2>What vision actually received</h2>
+    </div>
+    <button id="backFromCellDiagnosticButton" class="secondary" type="button">Back</button>
+  </div>
+  <p class="help">
+    Each tile below is the exact isolated image sent to vision for that player's hole.
+    The large number shown under each tile is the score vision returned.
+  </p>
+  <div id="cellDiagnosticPlayers"></div>
+  <div class="actions">
+    <button id="continueFromCellDiagnosticButton" class="primary" type="button">Continue to normal review</button>
+  </div>
+</section>
+
+<section id="reviewPanel" class="card hidden">
       <div class="review-head">
         <div>
           <p class="eyebrow">Review</p>
@@ -104,7 +123,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 5.5 · Isolated-Cell Vision</footer>
+    <footer class="version-footer">Version 5.6 · Isolated-Cell Diagnostic</footer>
   
 
 
@@ -117,7 +136,7 @@
     </div>
     <button id="backFromRawButton" class="secondary" type="button">Back</button>
   </div>
-  <p>This shows the player-row locator and isolated-cell vision response before the normal review screen.</p>
+  <p>This version shows the exact 18 cell crops sent to vision for every player before the normal review screen.</p>
   <pre id="rawOcrOutput"></pre>
   <button id="continueFromRawButton" class="primary" type="button">Continue to normal review</button>
 </section>

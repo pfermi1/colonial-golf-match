@@ -76,7 +76,7 @@ Return JSON only:
         players: [],
         debug: { locatorPass: locatorText },
         warning: 'Could not confidently locate the card/player rows.',
-        ocrMode: 'isolated-cell-vision-v5.5'
+        ocrMode: 'isolated-cell-diagnostic-v5.6'
       });
     }
 
@@ -116,7 +116,11 @@ Return JSON only:
           .toBuffer();
 
         cells.push(cell);
-        cellDebug.push({ hole: h+1, left, top, right, bottom });
+        cellDebug.push({
+          hole: h+1,
+          left, top, right, bottom,
+          imageDataUrl: `data:image/jpeg;base64,${cell.toString('base64')}`
+        });
       }
 
       const panel = await makePlayerPanel(loc.name, cells, pIndex);
@@ -202,15 +206,15 @@ Return JSON only:
         isolatedCellReadPass: readText,
         locatedPlayers: debugPlayers
       },
-      ocrMode: 'isolated-cell-vision-v5.5'
+      ocrMode: 'isolated-cell-diagnostic-v5.6'
     });
 
   } catch (error) {
-    console.error('v5.5 isolated-cell read failure:', error);
+    console.error('v5.6 isolated-cell diagnostic failure:', error);
     return reply(500, {
       error: error?.message || 'Isolated-cell reading failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'isolated-cell-vision-v5.5'
+      ocrMode: 'isolated-cell-diagnostic-v5.6'
     });
   }
 };
