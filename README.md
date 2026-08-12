@@ -336,3 +336,14 @@ No OCR/vision logic changed from v5.6.
 
 ## v5.6.2 Diagnostic Hotfix 2
 Fixes the missing `cellDiagnosticMeta` runtime variable and audits/binds the diagnostic DOM references before the scorecard request runs. OCR/vision logic remains unchanged.
+
+## v5.7 Geometry-Only Proof
+No score OCR or digit vision is performed.
+
+This build:
+- normalizes EXIF orientation;
+- uses one geometry-only vision call to locate the physical card and handwritten player rows;
+- generates 18 exact cell crops per player;
+- returns every crop to the browser and displays it on-screen.
+
+Acceptance criterion: every displayed tile must visibly contain the intended handwritten hole score for the correct player. Only after this is proven should digit recognition be re-enabled.
