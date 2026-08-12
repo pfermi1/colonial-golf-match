@@ -2,12 +2,11 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
-// Fixed Colonial hole-center ratios inside the physical scorecard rectangle.
-// These are intentionally reused from v2.9 because the horizontal template
-// approach was the strongest X-positioning result so far.
+// v3.1 calibration: v3.0 was roughly two hole-columns too far right.
+// Shift the fixed template left by about two normal hole spacings.
 const HOLE_X_RATIOS = [
-  0.190, 0.225, 0.260, 0.295, 0.330, 0.365, 0.400, 0.435, 0.470,
-  0.555, 0.590, 0.625, 0.660, 0.695, 0.730, 0.765, 0.800, 0.835
+  0.120, 0.155, 0.190, 0.225, 0.260, 0.295, 0.330, 0.365, 0.400,
+  0.485, 0.520, 0.555, 0.590, 0.625, 0.660, 0.695, 0.730, 0.765
 ];
 
 exports.handler = async function handler(event) {
@@ -25,7 +24,6 @@ exports.handler = async function handler(event) {
     }
 
     const inputBuffer = dataUrlToBuffer(imageDataUrl);
-
     const normalizedBuffer = await sharp(inputBuffer)
       .rotate()
       .resize({ width: 2200, height: 2200, fit: 'inside', withoutEnlargement: true })
@@ -37,35 +35,45 @@ exports.handler = async function handler(event) {
     const height = meta.height;
     const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
 
-    // ONE vision call:
-    // locate physical card + tight handwritten name box only.
-    const geometry = await locateCardAndFirstPlayerName(apiKey, normalizedDataUrl);
+    // One vision call:
+    // locate physical card, printed PAR row, and first handwritten player name.
+    const geometry = await locateCardParAndPlayer(apiKey, normalizedDataUrl);
 
-    if (!geometry.cardBox || !geometry.nameBox) {
+    if (!geometry.cardBox || !geometry.parBox || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'name-y-plus-fixed-x-v3.0',
+        ocrMode: 'template-calibration-v3.1',
         playerName: geometry.name || '',
-        message: 'Could not confidently locate the card and first handwritten player name.',
+        message: 'Could not confidently locate card, PAR row, and player name.',
         debug: { geometry, cells: [] }
       });
     }
 
     const cardPx = normBoxToPixels(geometry.cardBox, width, height);
+    const parPx = normBoxToPixels(geometry.parBox, width, height);
     const namePx = normBoxToPixels(geometry.nameBox, width, height);
 
     const cardWidth = cardPx.right - cardPx.left;
-    const nameHeight = Math.max(1, namePx.bottom - namePx.top);
 
-    // Mechanical Y positioning:
-    // use the vertical center of the handwritten name as the row centerline.
-    const rowCenterY = Math.round((namePx.top + namePx.bottom) / 2);
+    // Determine score-row center mechanically.
+    // The first player row is immediately above the other player rows and above PAR.
+    // Use the player's actual name Y if available, but sanity-check it relative to PAR.
+    let rowCenterY = Math.round((namePx.top + namePx.bottom) / 2);
 
-    // Score row crop height is tied to the actual handwritten-name height,
-    // with a little padding to include the full score digits.
-    const rowCropHeight = Math.max(18, Math.min(90, Math.round(nameHeight * 1.45)));
+    const parCenterY = Math.round((parPx.top + parPx.bottom) / 2);
+
+    // Expected first-player row should be above PAR by roughly 3.5-5 row-heights.
+    // If the name center is implausibly close to PAR or below it, repair from PAR.
+    const nameHeight = Math.max(8, namePx.bottom - namePx.top);
+    const estimatedRowStep = Math.max(12, Math.round(nameHeight * 1.05));
+    if (rowCenterY >= parCenterY - estimatedRowStep * 1.5 || rowCenterY > parCenterY) {
+      rowCenterY = parCenterY - Math.round(estimatedRowStep * 4.2);
+    }
+
+    const rowCropHeight = Math.max(18, Math.min(90, Math.round(nameHeight * 1.5)));
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, height - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, height);
 
+    // Fixed Colonial X positions with two-column calibration correction.
     const spacings = [];
     for (let i = 1; i < HOLE_X_RATIOS.length; i++) {
       spacings.push((HOLE_X_RATIOS[i] - HOLE_X_RATIOS[i - 1]) * cardWidth);
@@ -75,7 +83,6 @@ exports.handler = async function handler(event) {
     const cropWidth = Math.max(14, Math.floor(medianSpacing * 0.80));
 
     const cells = [];
-
     for (let i = 0; i < 18; i++) {
       const hole = i + 1;
       const cx = Math.round(cardPx.left + HOLE_X_RATIOS[i] * cardWidth);
@@ -83,15 +90,13 @@ exports.handler = async function handler(event) {
 
       const left = clamp(cx - halfW, 0, width - 1);
       const right = clamp(cx + halfW, left + 1, width);
-      const cellW = Math.max(1, right - left);
-      const cellH = Math.max(1, rowBottom - rowTop);
 
       const cellBuffer = await sharp(normalizedBuffer)
         .extract({
           left,
           top: rowTop,
-          width: cellW,
-          height: cellH
+          width: Math.max(1, right - left),
+          height: Math.max(1, rowBottom - rowTop)
         })
         .resize({ width: 240, height: 180, fit: 'contain', background: '#ffffff' })
         .jpeg({ quality: 92 })
@@ -105,91 +110,94 @@ exports.handler = async function handler(event) {
     }
 
     return reply(200, {
-      ocrMode: 'name-y-plus-fixed-x-v3.0',
+      ocrMode: 'template-calibration-v3.1',
       playerName: geometry.name || '',
       debug: {
         geometry,
         rowCenterY,
-        rowCropHeight,
+        parCenterY,
         templateHoleXRatios: HOLE_X_RATIOS,
         cropWidth,
         cells
       }
     });
   } catch (error) {
-    console.error('v3.0 geometry failure:', error);
+    console.error('v3.1 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.0 geometry diagnostic failed.',
+      error: error?.message || 'v3.1 geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'name-y-plus-fixed-x-v3.0'
+      ocrMode: 'template-calibration-v3.1'
     });
   }
 };
 
-async function locateCardAndFirstPlayerName(apiKey, imageDataUrl) {
+async function locateCardParAndPlayer(apiKey, imageDataUrl) {
   const prompt = `
 GEOMETRY-ONLY task on ONE photographed Colonial Golf Club scorecard.
 
-Do NOT transcribe any score digits.
+Do NOT transcribe scores.
 
 Preferred orientation:
-- scorecard is landscape;
-- Hole 1 is left and Hole 18 is right;
-- handwritten player names are on the left;
-- player score rows are below the printed HANDICAP row and above the printed PAR row.
+- scorecard landscape;
+- Hole 1 left, Hole 18 right;
+- handwritten player names at left;
+- four player rows sit directly ABOVE the printed PAR row;
+- a fifth handwritten player may appear BELOW the PAR row.
 
-Find the FIRST handwritten player name that has handwritten scores on the same row.
+Find:
+1) the outer physical scorecard rectangle;
+2) the printed PAR row box;
+3) the FIRST handwritten player name above PAR that has handwritten scores on that row.
 
-Return ONLY:
-1) name: the visible handwritten player name;
-2) cardBox: the outer rectangle of the physical scorecard itself;
-3) nameBox: a TIGHT box around only the handwritten player name itself.
+Return:
+- name
+- cardBox
+- parBox: tight box around the printed PAR row across the card
+- nameBox: tight box around only that handwritten player name
 
 CRITICAL:
-- nameBox must tightly surround the handwritten letters of the player's name.
-- Do NOT return the score row as nameBox.
-- Do NOT return a blank row.
-- Do NOT use printed HANDICAP, PAR, yardage, OUT, IN, TOT, HCP or NET text.
-- Exclude table, keyboard, knee and all background from cardBox.
-- Coordinates are normalized integers 0-1000 relative to the full image.
+- Do not confuse the PAR row with a player row.
+- Do not use the fifth player below PAR.
+- nameBox must be above parBox.
+- cardBox excludes table, keyboard, knee, and background.
+- Coordinates are normalized 0-1000.
 
 Return JSON only:
 {
   "name":"",
   "cardBox":{"left":0,"top":0,"right":0,"bottom":0},
+  "parBox":{"left":0,"top":0,"right":0,"bottom":0},
   "nameBox":{"left":0,"top":0,"right":0,"bottom":0}
 }`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 450);
+  ], 550);
 
   const parsed = parseJson(extractOutputText(raw));
   const name = String(parsed?.name || '').trim();
   const cardBox = normalizeBox(parsed?.cardBox, 120, 120);
+  const parBox = normalizeBox(parsed?.parBox, 120, 8);
   const nameBox = normalizeBox(parsed?.nameBox, 20, 8);
 
-  if (!cardBox || !nameBox) {
-    return { name, cardBox: null, nameBox: null };
+  if (!cardBox || !parBox || !nameBox) {
+    return { name, cardBox: null, parBox: null, nameBox: null };
   }
 
-  const nameInside =
-    nameBox.left >= cardBox.left &&
-    nameBox.right <= cardBox.right &&
-    nameBox.top >= cardBox.top &&
-    nameBox.bottom <= cardBox.bottom;
+  const inside = (b) =>
+    b.left >= cardBox.left && b.right <= cardBox.right &&
+    b.top >= cardBox.top && b.bottom <= cardBox.bottom;
 
-  if (!nameInside) {
-    return { name, cardBox: null, nameBox: null };
+  if (!inside(parBox) || !inside(nameBox) || nameBox.top >= parBox.top) {
+    return { name, cardBox: null, parBox: null, nameBox: null };
   }
 
-  return { name, cardBox, nameBox };
+  return { name, cardBox, parBox, nameBox };
 }
 
 function normalizeBox(box, minWidth, minHeight) {
   if (!box || typeof box !== 'object') return null;
-
   const left = Number(box.left);
   const top = Number(box.top);
   const right = Number(box.right);
@@ -207,7 +215,6 @@ function normBoxToPixels(box, width, height) {
   const top = clamp(Math.floor(box.top / 1000 * height), 0, height - 1);
   const right = clamp(Math.ceil(box.right / 1000 * width), left + 1, width);
   const bottom = clamp(Math.ceil(box.bottom / 1000 * height), top + 1, height);
-
   return { left, top, right, bottom };
 }
 
@@ -232,18 +239,15 @@ async function callVision(apiKey, content, maxOutputTokens) {
   });
 
   const raw = await apiResponse.json();
-
   if (!apiResponse.ok) {
     const message = raw?.error?.message || `OpenAI request failed (${apiResponse.status}).`;
     throw new Error(message);
   }
-
   return raw;
 }
 
 function extractOutputText(response) {
   if (typeof response.output_text === 'string') return response.output_text;
-
   const parts = [];
   for (const item of response.output || []) {
     for (const content of item.content || []) {
@@ -252,7 +256,6 @@ function extractOutputText(response) {
       }
     }
   }
-
   return parts.join('\n').trim();
 }
 
@@ -266,11 +269,8 @@ function parseJson(text) {
   } catch (_) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1));
-    }
-
-    throw new Error('The v3.0 geometry locator returned an unreadable response.');
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error('The v3.1 geometry locator returned an unreadable response.');
   }
 }
 

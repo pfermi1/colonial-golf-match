@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 3.0 · Name-Y + Fixed-X Geometry</p>
+      <p class="help compact-help">Version 3.1 · Template Calibration Diagnostic</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 3.0 · Name-Y + Fixed-X Geometry</footer>
+    <footer class="version-footer">Version 3.1 · Template Calibration Diagnostic</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Name-Y + Fixed-X Crops</h2>
+      <h2>18 Template-Calibrated Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v3.0 locates the physical Colonial card and the first handwritten player NAME. It uses the name’s vertical center for Y and fixed Colonial-template Hole 1–18 positions for X. Still no digit OCR.</p>
+  <p>v3.1 calibrates against the printed PAR row for vertical placement and shifts the fixed Colonial Hole 1–18 template two columns left based on the v3.0 diagnostic. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

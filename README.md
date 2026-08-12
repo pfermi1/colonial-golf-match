@@ -149,3 +149,10 @@ v3.0 intentionally combines the two best geometry ideas from prior tests:
 AI no longer guesses a separate score-row Y box.
 
 Acceptance criterion: with the same landscape Paul test photo, all 18 diagnostic tiles should show Paul's handwritten scores in Hole 1-18 order.
+
+## v3.1 Template Calibration Diagnostic
+Still no digit OCR.
+
+v3.1 uses the printed PAR row as an explicit vertical landmark and applies the observed v3.0 two-hole horizontal correction. The first player name above PAR is used as the primary row anchor, with PAR available as a sanity repair.
+
+Acceptance criterion: Hole 1 tile should show Paul's actual Hole 1 score (not Hole 3/par), and all 18 tiles should remain on Paul's handwritten row.
