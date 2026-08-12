@@ -296,3 +296,10 @@ Architecture refinement:
 - Total mismatches are marked uncertain for review rather than silently accepted.
 
 This deliberately avoids tiny-cell OCR while also removing distracting printed PAR/HANDICAP/yardage rows from the score-reading pass.
+
+## v5.3 Original-Photo Vision
+Major simplification:
+- Sends the original uploaded image directly to vision with no resize/crop/warp/preprocessing.
+- Pass 1 transcribes handwritten player names, 18 scores, and handwritten totals.
+- Pass 2 independently re-reads the same original photo and corrects the first pass.
+- Arithmetic mismatches only mark cells uncertain; they never force score changes.
