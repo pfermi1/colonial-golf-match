@@ -333,3 +333,6 @@ Diagnostic build:
 Fixes the JavaScript runtime error `Can't find variable: cellDiagnosticGrid`.
 The diagnostic renderer now consistently uses the existing `cellDiagnosticPlayers` container.
 No OCR/vision logic changed from v5.6.
+
+## v5.6.2 Diagnostic Hotfix 2
+Fixes the missing `cellDiagnosticMeta` runtime variable and audits/binds the diagnostic DOM references before the scorecard request runs. OCR/vision logic remains unchanged.

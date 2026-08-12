@@ -98,6 +98,7 @@ const rawOcrOutput = document.querySelector('#rawOcrOutput');
 const backFromRawButton = document.querySelector('#backFromRawButton');
 const continueFromRawButton = document.querySelector('#continueFromRawButton');
 const cellDiagnosticPanel = document.querySelector('#cellDiagnosticPanel');
+const cellDiagnosticMeta = document.querySelector('#cellDiagnosticMeta');
 const cellDiagnosticPlayers = document.querySelector('#cellDiagnosticPlayers');
 const backFromCellDiagnosticButton = document.querySelector('#backFromCellDiagnosticButton');
 const continueFromCellDiagnosticButton = document.querySelector('#continueFromCellDiagnosticButton');
@@ -116,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.6.1 startup
+showPanel(roundPanel); // v5.6.2.2 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.6.1 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.6.2.2 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -135,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.6.1 startup
+showPanel(roundPanel); // v5.6.2.2 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -177,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.6.1 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.6.2.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -230,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.6.1 startup
+showPanel(roundPanel); // v5.6.2.2 startup
       renderBallCard(updated);
       return;
     }
@@ -250,7 +251,7 @@ showPanel(roundPanel); // v5.6.1 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.6.1 startup
+showPanel(roundPanel); // v5.6.2.2 startup
   showPanel(roundPanel);
 });
 
@@ -414,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.6.1 startup
+showPanel(roundPanel); // v5.6.2.2 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -867,11 +868,11 @@ function renderCellDiagnostics(payload) {
   const first = groups[0];
 
   if (!first) {
-    cellDiagnosticMeta.textContent = 'No player-row cell crops were returned.';
+    if (cellDiagnosticMeta) cellDiagnosticMeta.textContent = 'No player-row cell crops were returned.';
     return;
   }
 
-  cellDiagnosticMeta.textContent =
+  if (cellDiagnosticMeta) cellDiagnosticMeta.textContent =
     `${first.name || 'Player'} — ${first.cells?.length || 0} physical hole crops. ` +
     `Front box: ${JSON.stringify(first.frontBox)} · Back box: ${JSON.stringify(first.backBox)}`;
 
