@@ -234,3 +234,15 @@ Changes:
 - Transform the detected handwritten player-name center into the normalized card and set score-row Y to that transformed center + 18 pixels.
 
 Acceptance criterion: all 18 crops should land on Paul's handwritten row while maintaining the improved non-drifting X alignment.
+
+## v3.9 Warped Row Scan
+Still no digit OCR.
+
+Changes:
+- Keep four-corner perspective normalization.
+- Keep v3.8 X geometry unchanged.
+- Transform the detected player-name center into the warped card.
+- Search downward on the warped image for a broad horizontal dark-content band consistent with handwritten score digits.
+- Use that scanned Y position for all 18 crops.
+
+Acceptance criterion: the 18 crops should land on Paul's handwritten row rather than blank grid, HANDICAP, or PAR rows while preserving the non-drifting X geometry.

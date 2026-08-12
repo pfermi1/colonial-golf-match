@@ -46,7 +46,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.corners || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'warped-name-offset-v3.8',
+        ocrMode: 'warped-row-scan-v3.9',
         playerName: geometry.name || '',
         message: 'Could not confidently locate all four card corners and the first player name.',
         debug: { geometry, cells: [] }
@@ -79,19 +79,20 @@ exports.handler = async function handler(event) {
 
     const nameCenterWarp = applyHomography(warp.srcToDstH, nameCenterSrc.x, nameCenterSrc.y);
 
-    // v3.8 key change:
-    // Keep the perspective-normalized card, but anchor Y to the transformed handwritten
-    // player-name center instead of an absolute template row. Apply only a small fixed
-    // offset on the normalized card.
+    // v3.9 key change:
+    // Keep the perspective-normalized card and stabilized X geometry, but stop guessing
+    // the Y offset. Scan the warped card below the transformed player-name center and
+    // choose the first horizontal score row with substantial handwritten dark content.
     const transformedNameCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
 
-    const NAME_TO_SCORE_Y_OFFSET = 18;
-    const rowCenterY = clamp(
-      transformedNameCenterY + NAME_TO_SCORE_Y_OFFSET,
-      0,
-      WARP_HEIGHT - 1
+    const rowScan = await locateHandwrittenScoreRow(
+      warp.buffer,
+      transformedNameCenterY,
+      WARP_WIDTH,
+      WARP_HEIGHT
     );
 
+    const rowCenterY = rowScan.rowCenterY;
     const rowCropHeight = 48;
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, WARP_HEIGHT - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, WARP_HEIGHT);
@@ -135,12 +136,12 @@ exports.handler = async function handler(event) {
       .toBuffer();
 
     return reply(200, {
-      ocrMode: 'warped-name-offset-v3.8',
+      ocrMode: 'warped-row-scan-v3.9',
       playerName: geometry.name || '',
       debug: {
         geometry,
         transformedNameCenterY,
-        nameToScoreYOffset: 18,
+        rowScan,
         rowCenterY,
         rowCropHeight,
         cropWidth,
@@ -150,11 +151,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.8 warped-name-offset failure:', error);
+    console.error('v3.9 warped-row-scan failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.8 warped-name-offset diagnostic failed.',
+      error: error?.message || 'v3.9 warped-row-scan diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'warped-name-offset-v3.8'
+      ocrMode: 'warped-row-scan-v3.9'
     });
   }
 };
@@ -208,6 +209,92 @@ Return JSON only:
   const corners = normalizeCorners(parsed?.corners);
 
   return { name, corners, nameBox };
+}
+
+
+async function locateHandwrittenScoreRow(warpBuffer, transformedNameCenterY, width, height) {
+  // Work in grayscale on the already perspective-normalized card.
+  const { data, info } = await sharp(warpBuffer)
+    .grayscale()
+    .normalize()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  // Player scores occupy the central score-grid region, not the name column or totals.
+  const x0 = Math.floor(width * 0.14);
+  const x1 = Math.floor(width * 0.82);
+
+  // Search a practical band below the transformed name center.
+  // We expect the score digits to sit on the same player row, but perspective/name-box
+  // detection can shift by several dozen pixels.
+  const yStart = clamp(Math.round(transformedNameCenterY - 10), 0, height - 1);
+  const yEnd = clamp(Math.round(transformedNameCenterY + 140), yStart + 1, height - 1);
+
+  const darkThreshold = 150;
+  const rowScores = [];
+
+  for (let y = yStart; y <= yEnd; y++) {
+    let dark = 0;
+    let sampled = 0;
+
+    for (let x = x0; x < x1; x += 2) {
+      const v = data[y * info.width + x];
+      if (v < darkThreshold) dark++;
+      sampled++;
+    }
+
+    rowScores.push({
+      y,
+      density: sampled ? dark / sampled : 0
+    });
+  }
+
+  // Smooth over neighboring scanlines so thin grid lines do not win by themselves.
+  const smoothed = rowScores.map((r, i) => {
+    let sum = 0, n = 0;
+    for (let j = Math.max(0, i - 3); j <= Math.min(rowScores.length - 1, i + 3); j++) {
+      sum += rowScores[j].density;
+      n++;
+    }
+    return { y: r.y, density: sum / n };
+  });
+
+  // Score handwriting creates a broader local dark band than a single printed grid line.
+  // Prefer candidates below the name center and reject very-near single-line peaks.
+  let best = null;
+  for (const r of smoothed) {
+    if (r.y < transformedNameCenterY - 2) continue;
+
+    // Broadness: compare surrounding +/- 6 px densities.
+    const idx = r.y - yStart;
+    const leftIdx = Math.max(0, idx - 6);
+    const rightIdx = Math.min(smoothed.length - 1, idx + 6);
+    let broad = 0;
+    for (let j = leftIdx; j <= rightIdx; j++) broad += smoothed[j].density;
+    broad /= (rightIdx - leftIdx + 1);
+
+    // Favor broader dark regions, mildly prefer closer rows.
+    const distancePenalty = Math.max(0, r.y - transformedNameCenterY) * 0.00035;
+    const score = broad - distancePenalty;
+
+    if (!best || score > best.score) {
+      best = { y: r.y, score, density: r.density, broad };
+    }
+  }
+
+  if (!best) {
+    return {
+      rowCenterY: clamp(transformedNameCenterY + 40, 0, height - 1),
+      method: 'fallback',
+      confidence: 0
+    };
+  }
+
+  return {
+    rowCenterY: best.y,
+    method: 'grayscale-row-scan',
+    confidence: Number(best.broad.toFixed(4))
+  };
 }
 
 async function perspectiveWarp(srcBuffer, srcWidth, srcHeight, srcCorners, dstWidth, dstHeight) {
@@ -421,7 +508,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.8 geometry locator returned an unreadable response.');
+    throw new Error('The v3.9 geometry locator returned an unreadable response.');
   }
 }
 

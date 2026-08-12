@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 3.8 · Warped Name-Y Offset</p>
+      <p class="help compact-help">Version 3.9 · Warped Row Scan</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 3.8 · Warped Name-Y Offset</footer>
+    <footer class="version-footer">Version 3.9 · Warped Row Scan</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Warped Name-Y Crops</h2>
+      <h2>18 Warped Row-Scan Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v3.8 keeps the perspective-straightened card and stabilized X geometry, but anchors Y to the transformed handwritten player-name center plus a small 18-pixel offset. Still no digit OCR.</p>
+  <p>v3.9 keeps the perspective-straightened card and stabilized X geometry, then scans the normalized card below the transformed player name to locate the actual handwritten score row. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

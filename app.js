@@ -160,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v3.8 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v3.9 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -907,7 +907,7 @@ function renderGeometryDiagnostics(payload) {
   geometryDiagnosticMeta.textContent =
     `${playerName} — ${cells.length} crops. ` +
     `Card normalized to: ${JSON.stringify(warpSize)} · Name: ${JSON.stringify(nameBox)} · ` +
-    `Name center Y: ${nameCenterY} · Y offset: ${yOffset} · Name center on warped card: ${transformedNameCenterY} · Y offset: ${payload?.debug?.nameToScoreYOffset} · Crop center Y: ${rowCenterY}`;
+    `Name center Y: ${nameCenterY} · Y offset: ${yOffset} · Name center on warped card: ${transformedNameCenterY} · Row scan: ${JSON.stringify(payload?.debug?.rowScan)} · Crop center Y: ${rowCenterY}`;
 
   if (!cells.length) {
     geometryDiagnosticGrid.innerHTML =
