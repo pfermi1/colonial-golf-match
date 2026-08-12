@@ -82,3 +82,10 @@ The server now:
 6. returns those exact crop images in the debug payload.
 
 For the current controlled test, use the same Paul-only cropped photo.
+
+## v2.4 focus
+Standard test orientation: landscape scorecard with Hole 1 at left, Hole 18 at right, and player names at left.
+
+v2.4 adds a second geometry-verification pass before any per-hole crop is made. It explicitly rejects printed HANDICAP/PAR/yardage rows and background, requires front/back boxes to be on the same handwritten player row, and keeps the 18-image diagnostic screen.
+
+Acceptance test: using the saved Paul-only test photo, every diagnostic tile must visibly contain Paul's corresponding handwritten score before OCR accuracy is evaluated.

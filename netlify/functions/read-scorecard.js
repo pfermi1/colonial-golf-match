@@ -47,7 +47,11 @@ exports.handler = async function handler(event) {
         visibleNames.length
       );
 
-      rowGeometry.push({ name, ...geometry });
+      const checkedGeometry = await verifyAndRepairGeometry(
+        apiKey, normalizedDataUrl, playerIndex, name, visibleNames.length, geometry
+      );
+
+      rowGeometry.push({ name, ...checkedGeometry });
 
       const playerResult = await readPlayerFromTrueCells(
         apiKey,
@@ -55,7 +59,7 @@ exports.handler = async function handler(event) {
         width,
         height,
         name,
-        geometry
+        checkedGeometry
       );
 
       players.push({
@@ -80,7 +84,7 @@ exports.handler = async function handler(event) {
         rowGeometry,
         cellDiagnostics: allCellDiagnostics
       },
-      ocrMode: 'true-cell-crop-diagnostic-v2.3'
+      ocrMode: 'oriented-card-cell-crop-v2.4'
     });
   } catch (error) {
     console.error('v2.3 scorecard read failed:', error);
@@ -121,7 +125,15 @@ async function locatePlayerNineBoxes(apiKey, imageDataUrl, playerIndex, playerNa
   const ordinal = ordinalWord(playerIndex + 1);
 
   const prompt = `
-You are locating grid geometry on ONE Colonial golf scorecard image.
+You are locating grid geometry on ONE Colonial golf scorecard image that has been normalized to landscape orientation.
+
+The expected visual layout is:
+- HOLE 1 is at the LEFT and HOLE 18 is at the RIGHT.
+- Player names are at the LEFT of their handwritten score rows.
+- Front-nine handwritten cells run left-to-right from Hole 1 through Hole 9.
+- Back-nine handwritten cells continue left-to-right from Hole 10 through Hole 18.
+- Do NOT select the printed HANDICAP row above the player rows.
+- Do NOT select the printed PAR row below the player rows.
 
 Target: the ${ordinal} handwritten player row out of ${playerCount} visible player rows.
 Player name is approximately ${JSON.stringify(playerName)}.
@@ -134,7 +146,9 @@ Important:
 - Exclude the handwritten player name.
 - Exclude OUT, IN, TOT, HCP, NET cells and totals.
 - Exclude printed PAR/HANDICAP/yardage rows above/below.
-- Each box should tightly cover the full nine score cells from the left edge of the first score cell to the right edge of the ninth score cell.
+- The vertical center of each box MUST pass through the handwritten score digits for this player.
+- Reject any candidate box whose contents are primarily printed yardages, printed handicap numbers, printed par values, or background outside the card.
+- Each box should tightly cover the full nine handwritten score cells from the left edge of the first score cell to the right edge of the ninth score cell.
 - Coordinates are normalized integers from 0 to 1000 relative to the full image:
   left=0 is image left, top=0 is image top, right=1000 is image right, bottom=1000 is image bottom.
 - If you cannot locate a box confidently, set it to null. Never guess another player's row.
@@ -155,6 +169,50 @@ Return JSON only:
     front: normalizeBox(parsed?.front),
     back: normalizeBox(parsed?.back)
   };
+}
+
+
+async function verifyAndRepairGeometry(apiKey, imageDataUrl, playerIndex, playerName, playerCount, geometry) {
+  const prompt = `
+Geometry verification for a Colonial golf scorecard.
+
+The card should be landscape: Hole 1 at left, Hole 18 at right.
+Target player: ${JSON.stringify(playerName)}, the ${ordinalWord(playerIndex + 1)} visible handwritten player row.
+
+Candidate front-nine box: ${JSON.stringify(geometry.front)}
+Candidate back-nine box: ${JSON.stringify(geometry.back)}
+
+Inspect THIS image and return corrected boxes if necessary.
+Each returned box must contain ONLY the target player's handwritten score cells:
+front = Holes 1-9, back = Holes 10-18.
+
+Critical rejection rules:
+- Printed HANDICAP numbers are NOT player scores.
+- Printed PAR numbers are NOT player scores.
+- Yardages are NOT player scores.
+- Background/knee/table is NOT part of either box.
+- Both boxes must lie on the SAME handwritten player row.
+- The front and back boxes should have nearly the same top and bottom coordinates.
+- The front box must be left of the back box.
+- Exclude OUT, IN, TOT, HCP and NET totals.
+
+Return JSON only:
+{"front":{"left":0,"top":0,"right":0,"bottom":0},"back":{"left":0,"top":0,"right":0,"bottom":0}}
+`;
+  const raw = await callVision(apiKey, [
+    { type: 'input_text', text: prompt },
+    { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
+  ], 450);
+  const parsed = parseJson(extractOutputText(raw));
+  const front = normalizeBox(parsed?.front);
+  const back = normalizeBox(parsed?.back);
+  if (!front || !back) return geometry;
+
+  // Mechanical sanity checks for the standard landscape layout.
+  const sameRow = Math.abs(front.top - back.top) <= 35 && Math.abs(front.bottom - back.bottom) <= 35;
+  const ordered = front.left < back.left;
+  if (!sameRow || !ordered) return geometry;
+  return { front, back };
 }
 
 async function readPlayerFromTrueCells(apiKey, imageBuffer, imageWidth, imageHeight, playerName, geometry) {
