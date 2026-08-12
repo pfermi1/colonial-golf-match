@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 3.6 · Perspective-Normalized Card</p>
+      <p class="help compact-help">Version 3.7 · Perspective Template Calibration</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 3.6 · Perspective-Normalized Card</footer>
+    <footer class="version-footer">Version 3.7 · Perspective Template Calibration</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Perspective-Normalized Crops</h2>
+      <h2>18 Template-Calibrated Normalized Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v3.6 detects the four physical scorecard corners, perspective-straightens the card into a fixed rectangle, then applies fixed Colonial Hole 1–18 positions on the normalized card. Still no digit OCR.</p>
+  <p>v3.7 keeps the perspective-straightened card, fixes the first-player Y to the Colonial template, shifts only Holes 1–9 left one column, and leaves Holes 10–18 unchanged. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

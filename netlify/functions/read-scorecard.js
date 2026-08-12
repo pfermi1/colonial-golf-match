@@ -5,7 +5,7 @@ const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 // Fixed normalized Colonial hole centers on the STRAIGHTENED card.
 // The perspective warp makes these independent of phone framing/skew.
 const HOLE_X_RATIOS = [
-  0.155, 0.189, 0.223, 0.257, 0.291, 0.325, 0.359, 0.393, 0.427,
+  0.121, 0.155, 0.189, 0.223, 0.257, 0.291, 0.325, 0.359, 0.393,
   0.515, 0.549, 0.583, 0.617, 0.651, 0.685, 0.719, 0.753, 0.787
 ];
 
@@ -46,7 +46,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.corners || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'perspective-normalized-v3.6',
+        ocrMode: 'perspective-template-calibrated-v3.7',
         playerName: geometry.name || '',
         message: 'Could not confidently locate all four card corners and the first player name.',
         debug: { geometry, cells: [] }
@@ -79,11 +79,19 @@ exports.handler = async function handler(event) {
 
     const nameCenterWarp = applyHomography(warp.srcToDstH, nameCenterSrc.x, nameCenterSrc.y);
 
-    // Trust the transformed player-name center Y; no raw-photo offset.
-    const rowCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
+    // v3.7 key change:
+    // Once the physical card is perspective-normalized, stop deriving the first-player
+    // score-row Y from the photo. Use a fixed Colonial-template Y instead.
+    // v3.6 consistently hit the printed PAR row, so move to the known first-player band
+    // on the normalized card.
+    const transformedNameCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
 
-    // Use a template-relative row crop height on the normalized card.
-    const rowCropHeight = 54;
+    // Fixed first-player row center on normalized 1800x1050 Colonial card.
+    // Calibrated from the controlled card image: above PAR, below HANDICAP.
+    const FIRST_PLAYER_Y_RATIO = 0.335;
+    const rowCenterY = Math.round(FIRST_PLAYER_Y_RATIO * WARP_HEIGHT);
+
+    const rowCropHeight = 50;
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, WARP_HEIGHT - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, WARP_HEIGHT);
 
@@ -126,10 +134,12 @@ exports.handler = async function handler(event) {
       .toBuffer();
 
     return reply(200, {
-      ocrMode: 'perspective-normalized-v3.6',
+      ocrMode: 'perspective-template-calibrated-v3.7',
       playerName: geometry.name || '',
       debug: {
         geometry,
+        transformedNameCenterY,
+        firstPlayerYRatio: 0.335,
         rowCenterY,
         rowCropHeight,
         cropWidth,
@@ -139,11 +149,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.6 perspective-normalization failure:', error);
+    console.error('v3.7 template-calibration failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.6 perspective-normalization diagnostic failed.',
+      error: error?.message || 'v3.7 template-calibration diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'perspective-normalized-v3.6'
+      ocrMode: 'perspective-template-calibrated-v3.7'
     });
   }
 };
@@ -410,7 +420,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.6 geometry locator returned an unreadable response.');
+    throw new Error('The v3.7 geometry locator returned an unreadable response.');
   }
 }
 

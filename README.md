@@ -211,3 +211,15 @@ v3.6 stops calibrating raw-photo X/Y positions. It:
 6. shows the 18 crops for inspection.
 
 This is designed so moderate differences in phone framing, card size, rotation and perspective should be normalized away before cropping.
+
+## v3.7 Perspective Template Calibration
+Still no digit OCR.
+
+Changes:
+- Keep v3.6 four-corner perspective normalization.
+- Stop using transformed name Y for score-row cropping.
+- Use fixed first-player Y ratio 0.335 on the normalized 1800x1050 card.
+- Shift only Holes 1-9 left by one front-nine column (0.034 of normalized card width).
+- Leave Holes 10-18 X positions unchanged.
+
+Acceptance criterion: crops should land on Paul's handwritten row, Hole 1 should begin at Paul's true Hole 1, and Holes 10-18 should remain correctly aligned.
