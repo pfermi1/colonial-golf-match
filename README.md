@@ -377,3 +377,13 @@ Key changes:
 - The physical card is cropped and normalized to a fixed 1800x1050 landscape image.
 - Fixed Colonial player-row and hole-column template coordinates are applied only to that normalized card.
 - The diagnostic page shows the normalized upright card and all 72 crops.
+
+## v5.8.1 Landscape Header Lock
+No score OCR.
+
+Orientation is now split into two separate decisions:
+1. Make the physical card landscape using only 0/90/270 degrees.
+2. On the landscape card, choose only 0 vs 180 by inspecting the printed Colonial header:
+   HOLE 1-9 OUT 10-18 IN TOT HCP NET.
+
+Handwriting is ignored during the 180-degree decision. This is intended to prevent the upside-down normalization seen in v5.8.

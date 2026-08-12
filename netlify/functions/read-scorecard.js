@@ -44,36 +44,78 @@ exports.handler = async function(event) {
     const exifMeta = await sharp(exifNormalized).metadata();
     const exifDataUrl = `data:image/jpeg;base64,${exifNormalized.toString('base64')}`;
 
-    // PASS 1: determine the 90-degree rotation needed to make the PHYSICAL CARD
-    // landscape with HOLE 1 on the left and HOLE 18 on the right.
-    const orientationPrompt = `
+    // PASS 1A: rotate the photographed card into landscape orientation only.
+    // We intentionally do NOT allow a 180-degree decision here.
+    const landscapePrompt = `
 GEOMETRY ONLY. Do not read player scores.
 
 Look at this Colonial Golf Club scorecard photograph.
 
-Choose the clockwise rotation needed to make the PHYSICAL SCORECARD upright landscape:
-- the word HOLE should read normally;
-- Hole 1 should be on the LEFT;
-- Hole 18 should be on the RIGHT;
-- handwritten player names should read normally from left to right.
+Choose the clockwise rotation needed ONLY to make the PHYSICAL CARD landscape.
+Return exactly one of:
+- 0 if the card is already landscape;
+- 90 if the card must rotate clockwise;
+- 270 if the card must rotate counterclockwise.
 
-Return exactly one of 0, 90, 180, or 270 clockwise degrees.
+Do NOT use 180 at this stage.
+Do NOT decide which side is upright yet.
 
 Return JSON only:
 {"rotateClockwiseDegrees":0}
 `;
 
-    const orientationText = extractOutputText(
-      await callVision(apiKey, orientationPrompt, exifDataUrl, 250)
+    const landscapeText = extractOutputText(
+      await callVision(apiKey, landscapePrompt, exifDataUrl, 250)
     );
 
-    const orientationParsed = parseJson(orientationText);
-    const rotation = normalizeRotation(orientationParsed?.rotateClockwiseDegrees);
+    const landscapeParsed = parseJson(landscapeText);
+    const landscapeRotation = normalizeLandscapeRotation(
+      landscapeParsed?.rotateClockwiseDegrees
+    );
 
-    const uprightBuffer = rotation === 0
+    const landscapeBuffer = landscapeRotation === 0
       ? exifNormalized
       : await sharp(exifNormalized)
-          .rotate(rotation)
+          .rotate(landscapeRotation)
+          .jpeg({ quality: 95 })
+          .toBuffer();
+
+    const landscapeDataUrl =
+      `data:image/jpeg;base64,${landscapeBuffer.toString('base64')}`;
+
+    // PASS 1B: deterministic 0-vs-180 landscape orientation lock.
+    // Use only the printed Colonial header structure as the landmark.
+    const headerPrompt = `
+ORIENTATION ONLY. Do not read any handwritten player names or scores.
+
+This scorecard is already landscape. Decide whether it is upright or upside down.
+
+An UPRIGHT Colonial card has the printed header row arranged left-to-right as:
+HOLE, 1, 2, 3, 4, 5, 6, 7, 8, 9, OUT, 10, 11, 12, 13, 14, 15, 16, 17, 18, IN, TOT, HCP, NET.
+
+Choose:
+- 0 if that printed header is upright and readable in the expected left-to-right order;
+- 180 if the whole card is upside down and must be rotated 180 degrees.
+
+Ignore handwriting entirely.
+
+Return JSON only:
+{"flip180":0}
+`;
+
+    const headerText = extractOutputText(
+      await callVision(apiKey, headerPrompt, landscapeDataUrl, 250)
+    );
+
+    const headerParsed = parseJson(headerText);
+    const flip180 = Number(headerParsed?.flip180) === 180 ? 180 : 0;
+
+    const rotation = (landscapeRotation + flip180) % 360;
+
+    const uprightBuffer = flip180 === 0
+      ? landscapeBuffer
+      : await sharp(landscapeBuffer)
+          .rotate(180)
           .jpeg({ quality: 95 })
           .toBuffer();
 
@@ -118,7 +160,10 @@ Return JSON only:
       : [];
 
     const debug = {
-      orientationPass: orientationText,
+      landscapePass: landscapeText,
+      landscapeRotationClockwiseDegrees: landscapeRotation,
+      headerOrientationPass: headerText,
+      flip180Degrees: flip180,
       rotationClockwiseDegrees: rotation,
       locatorPass: locatorText,
       cardBox,
@@ -132,7 +177,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle after upright rotation.',
-        ocrMode: 'upright-card-template-geometry-v5.8'
+        ocrMode: 'landscape-header-lock-v5.8.1'
       });
     }
 
@@ -222,22 +267,22 @@ Return JSON only:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'upright-card-template-geometry-v5.8'
+      ocrMode: 'landscape-header-lock-v5.8.1'
     });
 
   } catch (error) {
-    console.error('v5.8 upright-card geometry failure:', error);
+    console.error('v5.8.1 landscape-header-lock failure:', error);
     return reply(500, {
       error: error?.message || 'Upright-card geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'upright-card-template-geometry-v5.8'
+      ocrMode: 'landscape-header-lock-v5.8.1'
     });
   }
 };
 
-function normalizeRotation(v) {
+function normalizeLandscapeRotation(v) {
   const n = Number(v);
-  return [0, 90, 180, 270].includes(n) ? n : 0;
+  return [0, 90, 270].includes(n) ? n : 0;
 }
 
 function normalizeBox(box, minW, minH) {
