@@ -2,6 +2,14 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
+// Colonial scorecard fixed-template hole centers, normalized within the card rectangle.
+// These ratios are based on the known printed Colonial layout:
+// 1-9 on the left half, 10-18 on the right half, excluding OUT/IN/TOT/HCP/NET.
+const HOLE_X_RATIOS = [
+  0.190, 0.225, 0.260, 0.295, 0.330, 0.365, 0.400, 0.435, 0.470,
+  0.555, 0.590, 0.625, 0.660, 0.695, 0.730, 0.765, 0.800, 0.835
+];
+
 exports.handler = async function handler(event) {
   if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
 
@@ -17,6 +25,7 @@ exports.handler = async function handler(event) {
     }
 
     const inputBuffer = dataUrlToBuffer(imageDataUrl);
+
     const normalizedBuffer = await sharp(inputBuffer)
       .rotate()
       .resize({ width: 2200, height: 2200, fit: 'inside', withoutEnlargement: true })
@@ -28,155 +37,145 @@ exports.handler = async function handler(event) {
     const height = meta.height;
     const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
 
-    // ONE vision call only:
-    // locate the first handwritten player row AND the printed hole-header centers.
-    const geometry = await locateRowAndHoleCenters(apiKey, normalizedDataUrl);
+    // One vision call only:
+    // locate physical scorecard rectangle + first handwritten player row.
+    const geometry = await locateCardAndFirstRow(apiKey, normalizedDataUrl);
 
-    if (!geometry.rowBox || geometry.holeCenters.length !== 18) {
+    if (!geometry.cardBox || !geometry.rowBox) {
       return reply(200, {
-        ocrMode: 'hole-header-geometry-v2.8',
+        ocrMode: 'fixed-template-geometry-v2.9',
         playerName: geometry.name || '',
-        message: 'Could not confidently locate the player row and all 18 printed hole columns.',
+        message: 'Could not confidently locate the scorecard and first handwritten player row.',
         debug: { geometry, cells: [] }
       });
     }
 
-    const rowBox = geometry.rowBox;
-    const leftPx = clamp(Math.floor(rowBox.left / 1000 * width), 0, width - 1);
-    const rightPx = clamp(Math.ceil(rowBox.right / 1000 * width), leftPx + 1, width);
-    const topPx = clamp(Math.floor(rowBox.top / 1000 * height), 0, height - 1);
-    const bottomPx = clamp(Math.ceil(rowBox.bottom / 1000 * height), topPx + 1, height);
+    const cardPx = normBoxToPixels(geometry.cardBox, width, height);
+    const rowPx = normBoxToPixels(geometry.rowBox, width, height);
 
-    // Convert 18 normalized header centers into pixel centers.
-    const centersPx = geometry.holeCenters.map(x => clamp(Math.round(x / 1000 * width), 0, width - 1));
+    const cardWidth = cardPx.right - cardPx.left;
+    const rowHeight = rowPx.bottom - rowPx.top;
 
-    // Estimate a crop width from neighboring header centers.
-    const diffs = [];
-    for (let i = 1; i < centersPx.length; i++) {
-      const d = centersPx[i] - centersPx[i - 1];
-      if (d > 4) diffs.push(d);
+    // Hole crop width is derived from neighboring fixed-template centers.
+    const spacings = [];
+    for (let i = 1; i < HOLE_X_RATIOS.length; i++) {
+      spacings.push((HOLE_X_RATIOS[i] - HOLE_X_RATIOS[i - 1]) * cardWidth);
     }
-    diffs.sort((a, b) => a - b);
-    const medianSpacing = diffs.length ? diffs[Math.floor(diffs.length / 2)] : Math.max(12, Math.floor((rightPx - leftPx) / 18));
-    const cropWidth = Math.max(12, Math.floor(medianSpacing * 0.82));
+    spacings.sort((a, b) => a - b);
+    const medianSpacing = spacings[Math.floor(spacings.length / 2)];
+    const cropWidth = Math.max(14, Math.floor(medianSpacing * 0.82));
 
     const cells = [];
 
     for (let i = 0; i < 18; i++) {
       const hole = i + 1;
-      const cx = centersPx[i];
+      const cx = Math.round(cardPx.left + HOLE_X_RATIOS[i] * cardWidth);
       const halfW = Math.floor(cropWidth / 2);
 
       const left = clamp(cx - halfW, 0, width - 1);
       const right = clamp(cx + halfW, left + 1, width);
       const cellW = Math.max(1, right - left);
-      const cellH = Math.max(1, bottomPx - topPx);
+      const cellH = Math.max(1, rowHeight);
 
       const cellBuffer = await sharp(normalizedBuffer)
-        .extract({ left, top: topPx, width: cellW, height: cellH })
+        .extract({
+          left,
+          top: rowPx.top,
+          width: cellW,
+          height: cellH
+        })
         .resize({ width: 240, height: 180, fit: 'contain', background: '#ffffff' })
         .jpeg({ quality: 92 })
         .toBuffer();
 
       cells.push({
         hole,
-        centerX: geometry.holeCenters[i],
+        xRatio: HOLE_X_RATIOS[i],
         imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
       });
     }
 
     return reply(200, {
-      ocrMode: 'hole-header-geometry-v2.8',
+      ocrMode: 'fixed-template-geometry-v2.9',
       playerName: geometry.name || '',
       debug: {
         geometry,
-        medianSpacing,
+        templateHoleXRatios: HOLE_X_RATIOS,
         cropWidth,
         cells
       }
     });
   } catch (error) {
-    console.error('v2.8 geometry failure:', error);
+    console.error('v2.9 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'Hole-header geometry diagnostic failed.',
+      error: error?.message || 'Fixed-template geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'hole-header-geometry-v2.8'
+      ocrMode: 'fixed-template-geometry-v2.9'
     });
   }
 };
 
-async function locateRowAndHoleCenters(apiKey, imageDataUrl) {
+async function locateCardAndFirstRow(apiKey, imageDataUrl) {
   const prompt = `
-GEOMETRY-ONLY task on a photographed Colonial Golf Club scorecard.
+GEOMETRY-ONLY task on ONE photographed Colonial Golf Club scorecard.
 
-Do NOT transcribe any scores.
+Do not transcribe scores.
 
 Preferred orientation:
-- Hole 1 is on the left.
-- Hole 18 is on the right.
-- The printed HOLE header row is near the top of the card.
-- Player names and handwritten scores are below the printed HANDICAP row and above the printed PAR row.
+- scorecard is landscape;
+- Hole 1 is at the left and Hole 18 at the right;
+- handwritten player names are on the left;
+- player score rows are between the printed HANDICAP row above and printed PAR row below.
 
-Tasks:
-1) Find the FIRST handwritten player name that has handwritten scores on the same row.
-2) Return a tight rowBox around ONLY that player's handwritten score row from just above the digits to just below the digits. The rowBox should span horizontally across all 18 hole columns but exclude the player's name and exclude OUT/IN/TOT/HCP/NET totals.
-3) Read the PRINTED HOLE header row and return the horizontal center X-coordinate of each printed hole-number column 1 through 18.
+Return:
+1) name: the FIRST handwritten player name that has handwritten scores;
+2) cardBox: the outer rectangular boundary of the physical scorecard itself, excluding table, keyboard, knee, etc.;
+3) rowBox: a tight horizontal box around ONLY that player's handwritten score digits from Hole 1 through Hole 18.
+   - Exclude the player name on the left.
+   - Exclude OUT, IN, TOT, HCP, NET totals.
+   - Do not use a blank row above/below.
+   - Do not use printed PAR/HANDICAP rows.
 
 Coordinates are normalized 0-1000 relative to the full image.
-
-CRITICAL:
-- holeCenters[0] must be the center of the printed Hole 1 column.
-- holeCenters[17] must be the center of the printed Hole 18 column.
-- holeCenters must be strictly increasing left-to-right.
-- Do not include OUT, IN, TOT, HCP, or NET as hole centers.
-- rowBox must be on the same handwritten row as the returned player name.
-- Do not use the printed PAR or HANDICAP rows as rowBox.
-- Do not select background, table, knee, keyboard, or anything outside the card.
 
 Return JSON only:
 {
   "name":"",
-  "rowBox":{"left":0,"top":0,"right":0,"bottom":0},
-  "holeCenters":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  "cardBox":{"left":0,"top":0,"right":0,"bottom":0},
+  "rowBox":{"left":0,"top":0,"right":0,"bottom":0}
 }`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 650);
+  ], 500);
 
   const parsed = parseJson(extractOutputText(raw));
   const name = String(parsed?.name || '').trim();
-  const rowBox = normalizeBox(parsed?.rowBox);
-  const source = Array.isArray(parsed?.holeCenters) ? parsed.holeCenters : [];
-  const holeCenters = source.map(Number).filter(Number.isFinite);
+  const cardBox = normalizeBox(parsed?.cardBox, 120, 120);
+  const rowBox = normalizeBox(parsed?.rowBox, 120, 8);
 
-  if (holeCenters.length !== 18) return { name, rowBox, holeCenters: [] };
-
-  // Mechanical validation.
-  for (let i = 0; i < holeCenters.length; i++) {
-    if (holeCenters[i] < 0 || holeCenters[i] > 1000) {
-      return { name, rowBox, holeCenters: [] };
-    }
-    if (i > 0 && holeCenters[i] <= holeCenters[i - 1]) {
-      return { name, rowBox, holeCenters: [] };
-    }
+  if (!cardBox || !rowBox) {
+    return { name, cardBox: null, rowBox: null };
   }
 
-  // Reject wildly irregular spacing; center fold can be wider, so allow broad tolerance.
-  const diffs = [];
-  for (let i = 1; i < holeCenters.length; i++) diffs.push(holeCenters[i] - holeCenters[i - 1]);
-  const sorted = [...diffs].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  const tooIrregular = diffs.filter(d => d < median * 0.45 || d > median * 2.2).length > 2;
+  // Mechanical containment: row must sit inside the card.
+  const rowInside =
+    rowBox.left >= cardBox.left &&
+    rowBox.right <= cardBox.right &&
+    rowBox.top >= cardBox.top &&
+    rowBox.bottom <= cardBox.bottom;
 
-  if (tooIrregular) return { name, rowBox, holeCenters: [] };
+  if (!rowInside) {
+    return { name, cardBox: null, rowBox: null };
+  }
 
-  return { name, rowBox, holeCenters };
+  return { name, cardBox, rowBox };
 }
 
-function normalizeBox(box) {
+function normalizeBox(box, minWidth, minHeight) {
   if (!box || typeof box !== 'object') return null;
+
   const left = Number(box.left);
   const top = Number(box.top);
   const right = Number(box.right);
@@ -184,8 +183,16 @@ function normalizeBox(box) {
 
   if (![left, top, right, bottom].every(Number.isFinite)) return null;
   if (left < 0 || top < 0 || right > 1000 || bottom > 1000) return null;
-  if (right - left < 100 || bottom - top < 8) return null;
+  if (right - left < minWidth || bottom - top < minHeight) return null;
 
+  return { left, top, right, bottom };
+}
+
+function normBoxToPixels(box, width, height) {
+  const left = clamp(Math.floor(box.left / 1000 * width), 0, width - 1);
+  const top = clamp(Math.floor(box.top / 1000 * height), 0, height - 1);
+  const right = clamp(Math.ceil(box.right / 1000 * width), left + 1, width);
+  const bottom = clamp(Math.ceil(box.bottom / 1000 * height), top + 1, height);
   return { left, top, right, bottom };
 }
 
@@ -247,7 +254,7 @@ function parseJson(text) {
     if (start >= 0 && end > start) {
       return JSON.parse(cleaned.slice(start, end + 1));
     }
-    throw new Error('The hole-header geometry locator returned an unreadable response.');
+    throw new Error('The fixed-template geometry locator returned an unreadable response.');
   }
 }
 

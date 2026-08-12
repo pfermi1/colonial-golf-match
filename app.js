@@ -160,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading the printed Hole 1–18 header positions and projecting them onto the handwritten player row...';
+  status.textContent = 'Locating the physical Colonial card and first handwritten player row, then applying fixed Hole 1–18 template positions...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -897,10 +897,11 @@ function renderGeometryDiagnostics(payload) {
   const geometry = payload?.debug?.geometry || {};
   const playerName = payload?.playerName || 'First visible player';
 
-  const centers = payload?.debug?.geometry?.holeCenters || [];
+  const cardBox = payload?.debug?.geometry?.cardBox || null;
+  const rowBox = payload?.debug?.geometry?.rowBox || null;
   geometryDiagnosticMeta.textContent =
-    `${playerName} — ${cells.length} local crops · ${centers.length} printed hole-column centers. ` +
-    `Row: ${JSON.stringify(payload?.debug?.geometry?.rowBox)}`;
+    `${playerName} — ${cells.length} fixed-template crops. ` +
+    `Card: ${JSON.stringify(cardBox)} · Row: ${JSON.stringify(rowBox)}`;
 
   if (!cells.length) {
     geometryDiagnosticGrid.innerHTML =

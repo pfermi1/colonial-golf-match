@@ -127,3 +127,14 @@ Still no digit OCR.
 v2.8 abandons grid-line detection inside the handwritten row. A single vision call returns the 18 printed Hole 1-18 header-column centers and a tight row box for the first handwritten player. The server projects those 18 X positions directly down onto that row and creates one crop around each center.
 
 Acceptance criterion: all 18 diagnostic tiles show the corresponding handwritten score for the same player, with no OUT/IN/TOT or center-divider contamination.
+
+## v2.9 Fixed Colonial Template
+Still no digit OCR.
+
+v2.9 uses AI only to locate:
+1. the physical scorecard rectangle;
+2. the first handwritten player row.
+
+The 18 hole X positions are then taken from fixed Colonial-scorecard template ratios rather than rediscovered from every photo.
+
+Acceptance criterion: using the same landscape Paul test image, all 18 diagnostic tiles should align to Paul's handwritten Hole 1-18 scores with no OUT/IN/TOT contamination.
