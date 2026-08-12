@@ -328,3 +328,8 @@ Diagnostic build:
 - Returns the exact enlarged image crop for every player/hole.
 - Shows those 18 crops per player on-screen with the score vision returned underneath each tile.
 - Lets us directly determine whether remaining errors come from crop geometry or digit interpretation.
+
+## v5.6.1 Diagnostic Hotfix
+Fixes the JavaScript runtime error `Can't find variable: cellDiagnosticGrid`.
+The diagnostic renderer now consistently uses the existing `cellDiagnosticPlayers` container.
+No OCR/vision logic changed from v5.6.

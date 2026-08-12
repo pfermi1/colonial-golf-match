@@ -116,12 +116,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.6 startup
+showPanel(roundPanel); // v5.6.1 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.6 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.6.1 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -135,7 +135,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.6 startup
+showPanel(roundPanel); // v5.6.1 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -177,7 +177,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.6 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.6.1 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -230,7 +230,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.6 startup
+showPanel(roundPanel); // v5.6.1 startup
       renderBallCard(updated);
       return;
     }
@@ -250,7 +250,7 @@ showPanel(roundPanel); // v5.6 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.6 startup
+showPanel(roundPanel); // v5.6.1 startup
   showPanel(roundPanel);
 });
 
@@ -414,7 +414,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.6 startup
+showPanel(roundPanel); // v5.6.1 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -862,7 +862,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 function renderCellDiagnostics(payload) {
-  cellDiagnosticGrid.innerHTML = '';
+  cellDiagnosticPlayers.innerHTML = '';
   const groups = payload?.debug?.cellDiagnostics || [];
   const first = groups[0];
 
@@ -901,7 +901,7 @@ function renderCellDiagnostics(payload) {
     result.textContent = cell.digit == null ? '?' : String(cell.digit);
     tile.appendChild(result);
 
-    cellDiagnosticGrid.appendChild(tile);
+    cellDiagnosticPlayers.appendChild(tile);
   }
 }
 
