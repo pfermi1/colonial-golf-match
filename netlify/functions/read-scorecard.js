@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'three-anchor-grid-v5.9.1'
+        ocrMode: 'fixed-template-geometry-v5.9.2'
       });
     }
 
@@ -162,95 +162,81 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: derive player rows plus only THREE horizontal anchors.
-    // We no longer ask vision for 18 individual column centers.
-    const gridPrompt = `
-GEOMETRY ONLY. Do not read any handwritten score digits.
+    // Step 4: fixed Colonial template geometry on the NORMALIZED upright card.
+    // No more AI-generated row/column coordinates in v5.9.2.
+    //
+    // These ratios are calibrated to the normalized physical card itself,
+    // not to the original phone photograph.
+    //
+    // Main handwritten rows on this Colonial scorecard:
+    // Paul, Steve, Dec, Crain — top to bottom.
+    const PLAYER_ROW_CENTERS = [0.275, 0.306, 0.337, 0.368];
+
+    // Hole columns are based on the actual Colonial layout:
+    // 9 front-nine cells, OUT gap, then 9 back-nine cells.
+    // The card is 1800 px wide after normalization.
+    const FRONT_LEFT = 0.185;
+    const FRONT_RIGHT = 0.487;
+    const BACK_LEFT = 0.530;
+    const BACK_RIGHT = 0.832;
+
+    const frontStep = (FRONT_RIGHT - FRONT_LEFT) / 9;
+    const backStep = (BACK_RIGHT - BACK_LEFT) / 9;
+
+    const holeCenters = [];
+    for (let i = 0; i < 9; i++) {
+      holeCenters.push(FRONT_LEFT + frontStep * (i + 0.5));
+    }
+    for (let i = 0; i < 9; i++) {
+      holeCenters.push(BACK_LEFT + backStep * (i + 0.5));
+    }
+
+    // Names still come from the normalized card, but geometry does not.
+    const namesPrompt = `
+NAMES ONLY. Do not read any golf score digits.
 
 This is a normalized upright Colonial Golf Club scorecard.
 
-Locate the MAIN handwritten player score grid ABOVE the printed PAR row.
+Read the handwritten player names in the MAIN player block above the printed PAR row.
+Return up to four names in top-to-bottom order.
 
-Return:
-1) the four horizontal player-row bands, top-to-bottom;
-2) the handwritten player names for those rows;
-3) exactly three X anchors based on the actual printed grid:
-   - frontLeft: the LEFT boundary of Hole 1;
-   - outSeparator: the vertical separator immediately AFTER Hole 9 / BEFORE the OUT column;
-   - backRight: the RIGHT boundary of Hole 18.
-
-Use the actual printed grid lines on THIS image.
-
-Important:
-- Do not use printed handicap or par rows.
-- The four player rows must correspond to the four handwritten rows above PAR.
-- Do not include OUT as a hole.
-- Do not include IN/TOT/HCP/NET after Hole 18.
-
-Coordinates are normalized integers 0-1000 relative to THIS normalized card.
+Do not include the handwritten scorer row below PAR.
 
 Return JSON only:
-{
-  "playerRows":[
-    {"name":"string","top":0,"bottom":0},
-    {"name":"string","top":0,"bottom":0},
-    {"name":"string","top":0,"bottom":0},
-    {"name":"string","top":0,"bottom":0}
-  ],
-  "anchors":{
-    "frontLeft":0,
-    "outSeparator":0,
-    "backRight":0
-  }
-}
+{"names":["name1","name2","name3","name4"]}
 `;
 
-    const gridText = extractOutputText(
-      await callVision(apiKey, gridPrompt, cardDataUrl, 1000)
+    const namesText = extractOutputText(
+      await callVision(apiKey, namesPrompt, cardDataUrl, 450)
     );
-    debug.gridGeometryPass = gridText;
+    const namesParsed = parseJson(namesText);
+    const names = Array.isArray(namesParsed?.names)
+      ? namesParsed.names.map(v => String(v || '').trim()).filter(Boolean).slice(0, 4)
+      : [];
 
-    const gridParsed = parseJson(gridText);
-    const rows = normalizeRows(gridParsed?.playerRows);
-    const anchors = normalizeAnchors(gridParsed?.anchors);
-
-    let holeCenters = [];
-    if (anchors) {
-      holeCenters = deriveHoleCenters(anchors);
-    }
-
+    debug.gridGeometryPass = namesText;
     debug.grid = {
-      rows,
-      anchors,
-      holeCenters
+      mode: 'fixed-colonial-template',
+      playerRowCenters: PLAYER_ROW_CENTERS,
+      holeCenters,
+      frontLeft: FRONT_LEFT,
+      frontRight: FRONT_RIGHT,
+      backLeft: BACK_LEFT,
+      backRight: BACK_RIGHT
     };
 
-    if (rows.length !== 4 || !anchors || holeCenters.length !== 18) {
-      return reply(200, {
-        players: [],
-        debug,
-        warning: `Grid geometry incomplete: ${rows.length} player rows, anchors ${anchors ? 'ok' : 'missing'}.`,
-        ocrMode: 'three-anchor-grid-v5.9.1'
-      });
-    }
-
-    // Step 5: crop exactly one cell per actual row/column intersection.
-    const cropW = 62;
     const players = [];
 
-    for (let pIndex = 0; pIndex < rows.length; pIndex++) {
-      const row = rows[pIndex];
-      const rowTop = Math.round(row.top / 1000 * NORMALIZED_HEIGHT);
-      const rowBottom = Math.round(row.bottom / 1000 * NORMALIZED_HEIGHT);
-      const rowCenterY = Math.round((rowTop + rowBottom) / 2);
+    // Tight crop dimensions, still slightly generous for handwriting.
+    const cropW = 62;
+    const cropH = 54;
 
-      const rowHeight = Math.max(36, rowBottom - rowTop);
-      const cropH = Math.max(42, Math.min(76, Math.round(rowHeight * 0.92)));
-
+    for (let pIndex = 0; pIndex < PLAYER_ROW_CENTERS.length; pIndex++) {
+      const rowCenterY = Math.round(PLAYER_ROW_CENTERS[pIndex] * NORMALIZED_HEIGHT);
       const cells = [];
 
       for (let h = 0; h < 18; h++) {
-        const cx = Math.round(holeCenters[h] / 1000 * NORMALIZED_WIDTH);
+        const cx = Math.round(holeCenters[h] * NORMALIZED_WIDTH);
 
         const left = clamp(Math.round(cx - cropW / 2), 0, NORMALIZED_WIDTH - 1);
         const top = clamp(Math.round(rowCenterY - cropH / 2), 0, NORMALIZED_HEIGHT - 1);
@@ -280,19 +266,20 @@ Return JSON only:
         });
       }
 
+      const name = names[pIndex] || `Player ${pIndex + 1}`;
+
       debug.templateRows.push({
-        name: row.name || `Player ${pIndex + 1}`,
+        name,
         playerIndex: pIndex + 1,
-        rowTop,
-        rowBottom,
         rowCenterY,
+        rowYRatio: PLAYER_ROW_CENTERS[pIndex],
         cropW,
         cropH,
         cells
       });
 
       players.push({
-        name: row.name || `Player ${pIndex + 1}`,
+        name,
         scores: Array(18).fill(null),
         uncertainHoles: Array.from({ length: 18 }, (_, i) => i + 1)
       });
@@ -301,15 +288,15 @@ Return JSON only:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'three-anchor-grid-v5.9.1'
+      ocrMode: 'fixed-template-geometry-v5.9.2'
     });
 
   } catch (error) {
-    console.error('v5.9.1 three-anchor grid failure:', error);
+    console.error('v5.9.2 fixed-template geometry failure:', error);
     return reply(500, {
       error: error?.message || 'Grid-derived geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'three-anchor-grid-v5.9.1'
+      ocrMode: 'fixed-template-geometry-v5.9.2'
     });
   }
 };

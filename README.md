@@ -412,3 +412,13 @@ Key change:
 - derives all 18 hole centers mathematically from those anchors.
 
 This reduces the fragile coordinate response from 18 X values to only 3 structural landmarks.
+
+## v5.9.2 Fixed Colonial Template
+No score OCR.
+
+Key change:
+- keeps the successful upright physical-card normalization;
+- removes all AI-generated row and X-coordinate geometry;
+- applies fixed player-row and hole-column positions relative to the normalized Colonial scorecard itself;
+- vision is used only to read the four handwritten player names;
+- the browser still shows all 72 crops for visual verification.
