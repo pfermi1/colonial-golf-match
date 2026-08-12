@@ -160,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locking the player row, detecting the printed vertical score-grid lines, and building 18 exact hole crops...';
+  status.textContent = 'Reading the printed Hole 1–18 header positions and projecting them onto the handwritten player row...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -897,10 +897,10 @@ function renderGeometryDiagnostics(payload) {
   const geometry = payload?.debug?.geometry || {};
   const playerName = payload?.playerName || 'First visible player';
 
-  const gridLines = payload?.debug?.gridLines || [];
+  const centers = payload?.debug?.geometry?.holeCenters || [];
   geometryDiagnosticMeta.textContent =
-    `${playerName} — ${cells.length} local crops · ${gridLines.length} detected vertical boundaries. ` +
-    `Front: ${JSON.stringify(geometry.front)} · Back: ${JSON.stringify(geometry.back)}`;
+    `${playerName} — ${cells.length} local crops · ${centers.length} printed hole-column centers. ` +
+    `Row: ${JSON.stringify(payload?.debug?.geometry?.rowBox)}`;
 
   if (!cells.length) {
     geometryDiagnosticGrid.innerHTML =

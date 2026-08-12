@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 2.7 · Printed Grid-Line Geometry</p>
+      <p class="help compact-help">Version 2.8 · Hole-Header Anchored Geometry</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 2.7 · Printed Grid-Line Geometry</footer>
+    <footer class="version-footer">Version 2.8 · Hole-Header Anchored Geometry</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Printed Grid-Line Crops</h2>
+      <h2>18 Hole-Header Anchored Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v2.7 locks the player row vertically from the handwritten name, then uses the scorecard’s printed vertical grid lines as the actual Hole 1–18 boundaries. Still no digit OCR.</p>
+  <p>v2.8 uses the printed HOLE 1–18 header columns as the horizontal anchors, then projects those same columns down onto the first handwritten player row. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

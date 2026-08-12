@@ -120,3 +120,10 @@ Still no digit OCR.
 v2.7 keeps the successful name-anchored vertical row from v2.6, but stops dividing the score span into equal widths. It analyzes the actual row image and detects persistent dark vertical grid lines. Those printed grid lines become the Hole 1-18 crop boundaries.
 
 Acceptance criterion: the 18 diagnostic tiles each contain exactly one corresponding handwritten score, with no OUT/IN total or center-divider shifts.
+
+## v2.8 Hole-Header Anchored Geometry
+Still no digit OCR.
+
+v2.8 abandons grid-line detection inside the handwritten row. A single vision call returns the 18 printed Hole 1-18 header-column centers and a tight row box for the first handwritten player. The server projects those 18 X positions directly down onto that row and creates one crop around each center.
+
+Acceptance criterion: all 18 diagnostic tiles show the corresponding handwritten score for the same player, with no OUT/IN/TOT or center-divider contamination.
