@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 6.0 · Semantic Row Reading</p>
+      <p class="help compact-help">Version 6.0.1 · Navigation Hotfix</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -76,13 +76,12 @@
     <button id="backFromCellDiagnosticButton" class="secondary" type="button">Back</button>
   </div>
   <p class="help">
-    Each tile below is the exact isolated image sent to vision for that player's hole.
-    The large number shown under each tile is the score vision returned.
+    Semantic mode does not generate score-cell crops. Continue below to review the player names and 18 scores returned from the full-card handwriting read.
   </p>
   <div id="cellDiagnosticMeta" class="help"></div>
   <div id="cellDiagnosticPlayers"></div>
   <div class="actions">
-    <button id="continueFromCellDiagnosticButton" class="primary" type="button">Back after inspection</button>
+    <button id="continueFromCellDiagnosticButton" class="primary" type="button">Review semantic scores</button>
   </div>
 </section>
 
@@ -124,7 +123,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 6.0 · Semantic Row Reading</footer>
+    <footer class="version-footer">Version 6.0.1 · Navigation Hotfix</footer>
   
 
 

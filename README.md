@@ -435,3 +435,8 @@ This is a deliberate reset of the score-reading pipeline.
 - Instructs the model to locate each handwritten player name and visually follow that same handwritten row across holes 1-18.
 - Printed yardages, handicaps, pars, ratings and totals are explicitly excluded.
 - Unreadable handwritten scores must return null.
+
+## v6.0.1 Navigation Hotfix
+- Fixes the diagnostic button variable names.
+- Review semantic scores now goes directly to the normal review screen using the already-returned v6.0 semantic payload.
+- No vision prompt, model, OCR, geometry, or score-reading changes.

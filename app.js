@@ -871,7 +871,7 @@ function renderCellDiagnostics(payload) {
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
     if (debug.semanticMode) {
-      cellDiagnosticMeta.textContent = 'v6.0 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
+      cellDiagnosticMeta.textContent = 'v6.0.1 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
       return;
     }
   const previewUrl = debug.normalizedCardDataUrl || '';
@@ -953,12 +953,13 @@ function renderCellDiagnostics(payload) {
   }
 }
 
-backFromCellsButton?.addEventListener('click', () => showPanel(uploadPanel));
+backFromCellDiagnosticButton?.addEventListener('click', () => showPanel(uploadPanel));
 
-continueFromCellsButton?.addEventListener('click', () => {
+continueFromCellDiagnosticButton?.addEventListener('click', () => {
   if (!pendingRawPayload) return;
-  rawOcrOutput.textContent = JSON.stringify(pendingRawPayload, null, 2);
-  showPanel(rawOcrPanel);
+  currentData = normalizeData(pendingRawPayload);
+  renderReview(currentData);
+  showPanel(reviewPanel);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -981,11 +982,4 @@ window.addEventListener('error', (event) => {
       roundPanel.prepend(p);
     }
   } catch (_) {}
-});
-
-
-backFromCellDiagnosticButton?.addEventListener('click', () => showPanel(uploadPanel));
-
-continueFromCellDiagnosticButton?.addEventListener('click', () => {
-  showPanel(uploadPanel);
 });
