@@ -279,3 +279,10 @@ v5.0.1 hotfix: fixes a duplicate JavaScript declaration that could stop app init
 - Fixes raw diagnostic panel switching.
 - Adds an on-screen JavaScript startup error message instead of silently showing a blank page.
 - Keeps the v5.0 whole-card vision reader unchanged.
+
+## v5.1 Whole-Card Verification
+Two-pass whole-card reader:
+- Pass 1 reads handwritten names, 18 hole scores, and handwritten OUT/IN/TOTAL values.
+- Pass 2 independently re-reads the same image and corrects the first pass.
+- Handwritten totals are arithmetic cross-checks.
+- Unresolved or total-inconsistent holes are marked uncertain for review.
