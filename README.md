@@ -359,3 +359,11 @@ Key change:
 - The browser shows the detected card preview plus all generated player/hole crops.
 
 This tests the card itself as the coordinate system rather than the phone photograph or AI-estimated row positions.
+
+## v5.7.2 Template Renderer Hotfix
+Front-end diagnostic hotfix only.
+
+- Removes the old `debug.cellDiagnostics` rendering path.
+- Renders `debug.cardPreviewDataUrl` and `debug.templateRows` directly.
+- The diagnostic page now shows the detected card plus all 72 fixed card-template crops, or a specific card/template-return error.
+- No OCR or recognition logic changed.

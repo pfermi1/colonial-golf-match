@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v5.7.1.2 startup
+showPanel(roundPanel); // v5.7.2.2 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v5.7.1.2 hotfix: invoke the native picker synchronously from the user gesture.
+  // v5.7.2.2 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v5.7.1.2 startup
+showPanel(roundPanel); // v5.7.2.2 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v5.7.1.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v5.7.2.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v5.7.1.2 startup
+showPanel(roundPanel); // v5.7.2.2 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v5.7.1.2 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v5.7.1.2 startup
+showPanel(roundPanel); // v5.7.2.2 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v5.7.1.2 startup
+showPanel(roundPanel); // v5.7.2.2 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -863,46 +863,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 function renderCellDiagnostics(payload) {
-  cellDiagnosticPlayers.innerHTML = '';
-  const groups = payload?.debug?.cellDiagnostics || [];
-  const first = groups[0];
+  pendingCellDiagnosticPayload = payload;
 
-  if (!first) {
-    if (cellDiagnosticMeta) cellDiagnosticMeta.textContent = 'No player-row cell crops were returned.';
-    return;
+  if (!cellDiagnosticPlayers) return;
+  cellDiagnosticPlayers.innerHTML = '';
+
+  const debug = payload?.debug || {};
+  const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
+  const previewUrl = debug.cardPreviewDataUrl || '';
+
+  if (cellDiagnosticMeta) {
+    if (!debug.cardBox) {
+      cellDiagnosticMeta.textContent = 'Card detection failed: no physical card box was returned.';
+    } else if (!rows.length) {
+      cellDiagnosticMeta.textContent =
+        `Card detected, but no template rows were returned. Card box: ${JSON.stringify(debug.cardBox)}`;
+    } else {
+      cellDiagnosticMeta.textContent =
+        `Detected card and generated ${rows.length} fixed player rows (${rows.length * 18} crops total).`;
+    }
   }
 
-  if (cellDiagnosticMeta) cellDiagnosticMeta.textContent =
-    `${first.name || 'Player'} — ${first.cells?.length || 0} physical hole crops. ` +
-    `Front box: ${JSON.stringify(first.frontBox)} · Back box: ${JSON.stringify(first.backBox)}`;
+  if (previewUrl) {
+    const previewSection = document.createElement('section');
+    previewSection.className = 'cell-diagnostic-player';
 
-  for (const cell of first.cells || []) {
-    const tile = document.createElement('div');
-    tile.className = 'cell-diagnostic-tile';
+    const title = document.createElement('h3');
+    title.textContent = 'Detected physical card';
 
-    if (cell.imageDataUrl) {
+    const img = document.createElement('img');
+    img.src = previewUrl;
+    img.alt = 'Detected physical scorecard';
+    img.style.width = '100%';
+    img.style.borderRadius = '12px';
+
+    previewSection.append(title, img);
+    cellDiagnosticPlayers.appendChild(previewSection);
+  }
+
+  rows.forEach((row, rowIndex) => {
+    const section = document.createElement('section');
+    section.className = 'cell-diagnostic-player';
+
+    const title = document.createElement('h3');
+    title.textContent = row?.name || `Player ${rowIndex + 1}`;
+
+    const meta = document.createElement('p');
+    meta.className = 'help';
+    meta.textContent =
+      `Fixed template row ${rowIndex + 1} · Y ratio ${row?.rowYRatio ?? '?'} · center ${row?.rowCenterY ?? '?'}`;
+
+    const grid = document.createElement('div');
+    grid.className = 'cell-diagnostic-grid';
+
+    const cells = Array.isArray(row?.cells) ? row.cells : [];
+    cells.forEach((cell, i) => {
+      const tile = document.createElement('div');
+      tile.className = 'cell-diagnostic-tile';
+
       const img = document.createElement('img');
-      img.src = cell.imageDataUrl;
-      img.alt = `Hole ${cell.hole} OCR crop`;
-      tile.appendChild(img);
-    } else {
-      const placeholder = document.createElement('div');
-      placeholder.style.cssText = 'aspect-ratio:1/1;display:grid;place-items:center;background:#f2f4f6;border-radius:8px;';
-      placeholder.textContent = 'No crop';
-      tile.appendChild(placeholder);
-    }
+      img.src = cell?.imageDataUrl || '';
+      img.alt = `${title.textContent} hole ${i + 1}`;
 
-    const hole = document.createElement('div');
-    hole.className = 'cell-diagnostic-hole';
-    hole.textContent = `Hole ${cell.hole}`;
-    tile.appendChild(hole);
+      const label = document.createElement('div');
+      label.className = 'cell-diagnostic-hole';
+      label.textContent = `Hole ${i + 1}`;
 
-    const result = document.createElement('div');
-    result.className = 'cell-diagnostic-result' + (cell.uncertain ? ' uncertain' : '');
-    result.textContent = cell.digit == null ? '?' : String(cell.digit);
-    tile.appendChild(result);
+      tile.append(img, label);
+      grid.appendChild(tile);
+    });
 
-    cellDiagnosticPlayers.appendChild(tile);
+    section.append(title, meta, grid);
+    cellDiagnosticPlayers.appendChild(section);
+  });
+
+  if (!previewUrl && !rows.length) {
+    const error = document.createElement('p');
+    error.className = 'help';
+    error.textContent = 'No card preview or template crops were returned by the server.';
+    cellDiagnosticPlayers.appendChild(error);
   }
 }
 
