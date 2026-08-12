@@ -1,16 +1,16 @@
-# Colonial Golf Match v1.6
+# Colonial Golf Match v1.7
 
-Version 1.6 is an OCR-focused release. No betting logic was changed.
+OCR-focused test build.
 
-## v1.6 Conservative OCR
+## What changed
 
-- Uses one independent vision read per player row.
-- Uses the higher-accuracy `gpt-4.1` model by default (override with `OPENAI_VISION_MODEL` in Netlify if desired).
-- Does not run a second automatic correction pass.
-- Explicitly forbids shifting scores left/right or smoothing repeated 3/4/5 patterns.
-- Ambiguous cells should be returned as `null` and highlighted for one-tap correction instead of guessed.
-- Keeps the existing score review, original photo, calculated 1 Ball / 2 Ball / 2+3 Ball audit, and match logic unchanged.
+- Separate **Take Photo** and **Choose Existing Photo** controls on iPhone.
+- Keeps the v1.6 conservative one-pass-per-player OCR approach.
+- Explicitly teaches the reader that a circle around a handwritten score is a birdie mark and must not be interpreted as part of the digit.
+- Uses the printed PAR row only as a visual sanity clue for circled birdies; it does not force likely scores.
+- Unclear scores remain blank/highlighted instead of being auto-corrected.
+- Existing score review, calculated 1 Ball / 2 Ball / 2+3 Ball, and match logic are unchanged.
 
-## Testing goal
+## Test recommendation
 
-Use the same real scorecard photos across releases and count the number of manual corrections needed. The target is fewer confident errors, even if the first read contains more highlighted blanks.
+Use the same saved scorecard photos from earlier versions first. That makes it possible to compare OCR accuracy directly from version to version.

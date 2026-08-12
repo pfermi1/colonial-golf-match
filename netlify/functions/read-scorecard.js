@@ -29,13 +29,13 @@ exports.handler = async function handler(event) {
 
     return reply(200, {
       players,
-      ocrMode: 'conservative-player-row-v1.6',
+      ocrMode: 'birdie-aware-conservative-player-row-v1.7',
       warning: players.some(p => p.uncertainHoles.length)
-        ? 'Please review the yellow holes. v1.6 uses one conservative read per player row and does not run any automatic correction pass.'
+        ? 'Please review the yellow holes. v1.7 uses one birdie-aware conservative read per player row and does not run any automatic correction pass.'
         : undefined
     });
   } catch (error) {
-    console.error('v1.5 scorecard read failed:', error);
+    console.error('v1.7 scorecard read failed:', error);
     return reply(500, { error: friendlyError(error) });
   }
 };
@@ -86,6 +86,9 @@ STRICT RULES:
 - Never shift a score left or right to fill a missing or uncertain cell.
 - Never infer a pattern from neighboring scores. A sequence such as 5,4,3,4,3,4 must be copied exactly as written, not smoothed into repeated 4s.
 - Distinguish handwritten 3, 4, 5, 6, and 7 by their visible strokes. If you cannot confidently distinguish the digit in its exact cell, return null for that hole.
+- IMPORTANT BIRDIE CONVENTION: scorers often DRAW A CIRCLE AROUND A BIRDIE SCORE. The circle is only a mark around the score. Ignore the circle itself and transcribe the single handwritten digit INSIDE the circle. Do not read the surrounding circle as 0, 6, 8, 9, or as part of a two-digit number.
+- Use the PRINTED PAR row for the same hole only as a visual sanity clue when interpreting a circled score: a circled birdie is normally one less than that printed par. Do NOT invent or force a birdie merely because a circle-like mark is present; the visible handwritten digit remains the primary evidence.
+- For uncircled scores, do not change a visible digit just because another score would be more statistically likely.
 - Do not borrow a digit from OUT, IN, TOT, PAR, HCP, NET, yardage, another player, or any 1 Ball / 2 Ball / 2+3 Ball row.
 - Do not invent Hole 9 or Hole 18 merely to complete the row.
 - For this current group, individual scores are integers 1 through 7. Values outside 1-7 must be null.

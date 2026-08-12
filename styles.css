@@ -22,7 +22,11 @@ button, input, select { font: inherit; }
 select, input[type="text"], input[type="number"] { width: 100%; border: 1px solid #b8c5d0; border-radius: 10px; padding: 10px; background: white; }
 .upload { display: grid; gap: 5px; padding: 22px; border: 2px dashed #8ca9bf; border-radius: 14px; text-align: center; cursor: pointer; background: #f7fbfe; }
 .upload span, .help, .status { color: var(--muted); }
-#scorecardFile { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.hidden-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.photo-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 10px; }
+.photo-choice { display: grid; gap: 4px; min-height: 84px; padding: 14px; border: 1px solid #9eb3c4; border-radius: 12px; background: #f7fbfe; color: var(--navy); cursor: pointer; align-content: center; text-align: center; }
+.photo-choice.primary-choice { background: var(--navy); color: white; border-color: var(--navy); }
+.photo-choice span { font-size: .84rem; color: inherit; opacity: .82; font-weight: 500; }
 .preview { width: 100%; max-height: 360px; object-fit: contain; margin: 16px 0; border-radius: 12px; border: 1px solid var(--line); background: #f4f6f8; }
 button { border: 0; border-radius: 11px; min-height: 46px; padding: 11px 16px; font-weight: 750; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }
@@ -218,3 +222,5 @@ dialog img { width: 100%; max-height: 82vh; object-fit: contain; }
 }
 
 /* Version 1.0: fixed-cell OCR is server-side; review UI remains intentionally unchanged. */
+
+@media (max-width: 460px) { .photo-picker { grid-template-columns: 1fr; } .photo-choice { min-height: 70px; } }

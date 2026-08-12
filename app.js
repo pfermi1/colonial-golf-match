@@ -1,4 +1,5 @@
-const fileInput = document.querySelector('#scorecardFile');
+const cameraInput = document.querySelector('#cameraFile');
+const libraryInput = document.querySelector('#libraryFile');
 const preview = document.querySelector('#preview');
 const readButton = document.querySelector('#readButton');
 const status = document.querySelector('#status');
@@ -62,8 +63,11 @@ reviewOriginalButton.addEventListener('click', () => {
 });
 backFromComparisonButton.addEventListener('click', () => showPanel(roundPanel));
 
-fileInput.addEventListener('change', async () => {
-  const file = fileInput.files?.[0];
+cameraInput.addEventListener('change', () => prepareSelectedPhoto(cameraInput));
+libraryInput.addEventListener('change', () => prepareSelectedPhoto(libraryInput));
+
+async function prepareSelectedPhoto(input) {
+  const file = input.files?.[0];
   if (!file) return;
   status.textContent = 'Preparing photo...';
   try {
@@ -75,12 +79,12 @@ fileInput.addEventListener('change', async () => {
   } catch (error) {
     status.textContent = `Could not prepare photo: ${error.message}`;
   }
-});
+}
 
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading each player row conservatively — uncertain holes will be left blank...';
+  status.textContent = 'Reading each player row conservatively — circles are treated as birdie marks and uncertain holes stay blank...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -636,7 +640,8 @@ function resetUpload(options = {}) {
   currentData = null;
   imageDataUrl = '';
   if (!options.keepEditing) editingCardId = null;
-  fileInput.value = '';
+  cameraInput.value = '';
+  libraryInput.value = '';
   preview.src = '';
   preview.classList.add('hidden');
   readButton.disabled = true;

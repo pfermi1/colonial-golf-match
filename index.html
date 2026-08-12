@@ -44,11 +44,19 @@
         </select>
       </label>
 
-      <label class="upload" for="scorecardFile">
-        <strong>Take or choose scorecard photo</strong>
-        <span>Use a straight, well-lit picture. Version 1.6 uses one conservative read per player row. If a digit is ambiguous, the app leaves that hole blank/highlighted instead of guessing.</span>
-      </label>
-      <input id="scorecardFile" type="file" accept="image/*" capture="environment">
+      <div class="photo-picker">
+        <label class="photo-choice primary-choice" for="cameraFile">
+          <strong>Take Photo</strong>
+          <span>Open the camera for a new scorecard picture.</span>
+        </label>
+        <label class="photo-choice" for="libraryFile">
+          <strong>Choose Existing Photo</strong>
+          <span>Select a scorecard already saved in Photos or Files.</span>
+        </label>
+      </div>
+      <p class="help compact-help">Version 1.7 is birdie-aware: a circle around a handwritten score is treated as a birdie mark, not part of the digit. The printed PAR row is used only as a visual clue; unclear scores stay blank/highlighted instead of being forced.</p>
+      <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
+      <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
       <img id="preview" class="preview hidden" alt="Uploaded scorecard preview">
       <div class="actions">
@@ -96,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 1.6 · Conservative OCR</footer>
+    <footer class="version-footer">Version 1.7 · Birdie-Aware Conservative OCR</footer>
   </main>
 
   <dialog id="photoDialog">
