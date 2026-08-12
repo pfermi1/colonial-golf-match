@@ -46,7 +46,7 @@ exports.handler = async function handler(event) {
 
     if (!geometry.corners || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'perspective-template-calibrated-v3.7',
+        ocrMode: 'warped-name-offset-v3.8',
         playerName: geometry.name || '',
         message: 'Could not confidently locate all four card corners and the first player name.',
         debug: { geometry, cells: [] }
@@ -79,19 +79,20 @@ exports.handler = async function handler(event) {
 
     const nameCenterWarp = applyHomography(warp.srcToDstH, nameCenterSrc.x, nameCenterSrc.y);
 
-    // v3.7 key change:
-    // Once the physical card is perspective-normalized, stop deriving the first-player
-    // score-row Y from the photo. Use a fixed Colonial-template Y instead.
-    // v3.6 consistently hit the printed PAR row, so move to the known first-player band
-    // on the normalized card.
+    // v3.8 key change:
+    // Keep the perspective-normalized card, but anchor Y to the transformed handwritten
+    // player-name center instead of an absolute template row. Apply only a small fixed
+    // offset on the normalized card.
     const transformedNameCenterY = clamp(Math.round(nameCenterWarp.y), 0, WARP_HEIGHT - 1);
 
-    // Fixed first-player row center on normalized 1800x1050 Colonial card.
-    // Calibrated from the controlled card image: above PAR, below HANDICAP.
-    const FIRST_PLAYER_Y_RATIO = 0.335;
-    const rowCenterY = Math.round(FIRST_PLAYER_Y_RATIO * WARP_HEIGHT);
+    const NAME_TO_SCORE_Y_OFFSET = 18;
+    const rowCenterY = clamp(
+      transformedNameCenterY + NAME_TO_SCORE_Y_OFFSET,
+      0,
+      WARP_HEIGHT - 1
+    );
 
-    const rowCropHeight = 50;
+    const rowCropHeight = 48;
     const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, WARP_HEIGHT - 2);
     const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, WARP_HEIGHT);
 
@@ -134,12 +135,12 @@ exports.handler = async function handler(event) {
       .toBuffer();
 
     return reply(200, {
-      ocrMode: 'perspective-template-calibrated-v3.7',
+      ocrMode: 'warped-name-offset-v3.8',
       playerName: geometry.name || '',
       debug: {
         geometry,
         transformedNameCenterY,
-        firstPlayerYRatio: 0.335,
+        nameToScoreYOffset: 18,
         rowCenterY,
         rowCropHeight,
         cropWidth,
@@ -149,11 +150,11 @@ exports.handler = async function handler(event) {
       }
     });
   } catch (error) {
-    console.error('v3.7 template-calibration failure:', error);
+    console.error('v3.8 warped-name-offset failure:', error);
     return reply(500, {
-      error: error?.message || 'v3.7 template-calibration diagnostic failed.',
+      error: error?.message || 'v3.8 warped-name-offset diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'perspective-template-calibrated-v3.7'
+      ocrMode: 'warped-name-offset-v3.8'
     });
   }
 };
@@ -420,7 +421,7 @@ function parseJson(text) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The v3.7 geometry locator returned an unreadable response.');
+    throw new Error('The v3.8 geometry locator returned an unreadable response.');
   }
 }
 

@@ -223,3 +223,14 @@ Changes:
 - Leave Holes 10-18 X positions unchanged.
 
 Acceptance criterion: crops should land on Paul's handwritten row, Hole 1 should begin at Paul's true Hole 1, and Holes 10-18 should remain correctly aligned.
+
+## v3.8 Warped Name-Y Offset
+Still no digit OCR.
+
+Changes:
+- Keep four-corner perspective normalization from v3.6/v3.7.
+- Keep the current stabilized Colonial X geometry unchanged.
+- Stop using a fixed absolute first-player Y.
+- Transform the detected handwritten player-name center into the normalized card and set score-row Y to that transformed center + 18 pixels.
+
+Acceptance criterion: all 18 crops should land on Paul's handwritten row while maintaining the improved non-drifting X alignment.
