@@ -51,3 +51,18 @@ Recommended test:
 1. Use the same cropped Paul-only photo from v2.0.
 2. Compare all 18 returned values against the known actual scores.
 3. Record the number of exact matches.
+
+
+## v2.2 focus
+This build is the first true per-hole image-crop test.
+
+The intended OCR path is:
+1. identify the visible player row;
+2. physically crop that row;
+3. split the row image into 18 score-box images;
+4. send each box to the vision model as a one-digit classification task;
+5. reconstruct Holes 1–18 from those 18 independent reads.
+
+A blank/unclear box should return null and be highlighted. No neighboring scores, totals, par, or golf-pattern logic should be used to guess the digit.
+
+Recommended baseline test: use the same cropped Paul-only image used in v2.0/v2.1.

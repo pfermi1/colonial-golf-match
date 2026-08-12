@@ -1,4 +1,4 @@
-const V2_1_SINGLE_CELL_DIAGNOSTIC = true;
+const V2_2_TRUE_CELL_CROP_DIAGNOSTIC = true;
 
 function normalizeOcrPlayersOnly(payload) {
   const rawPlayers = Array.isArray(payload?.players) ? payload.players : [];
@@ -808,4 +808,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const observer = new MutationObserver(addV21Banner);
   observer.observe(document.body, {subtree:true, childList:true});
   addV21Banner();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addV22 = () => {
+    const review = document.querySelector('#review, #reviewScreen, #review-screen');
+    if (!review || review.querySelector('.v22-diagnostic-note')) return;
+    const note = document.createElement('div');
+    note.className = 'v22-diagnostic-note';
+    note.textContent = 'v2.2 test: true per-hole image crops. Each hole should be read from its own isolated score box.';
+    note.style.cssText = 'margin:12px 0;padding:10px 12px;border-radius:10px;background:#eef4f8;font-weight:600;font-size:14px;';
+    review.prepend(note);
+  };
+  const observer = new MutationObserver(addV22);
+  observer.observe(document.body, {subtree:true, childList:true});
+  addV22();
 });

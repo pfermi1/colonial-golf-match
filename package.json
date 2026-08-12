@@ -1,9 +1,12 @@
 {
   "name": "colonial-golf-match",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "AI-assisted handwritten golf scorecard reader and Colonial match calculator.",
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5"
   }
 }

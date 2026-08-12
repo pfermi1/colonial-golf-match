@@ -1,3 +1,5 @@
+const V22_CELL_RULES = "\nV2.2 TRUE CELL-CROP OCR:\n- The server physically crops each visible player's 18 hole cells before digit recognition.\n- Each digit read receives ONLY one hole-cell image.\n- Return exactly one of: 1,2,3,4,5,6,7 or null.\n- Ignore circles around birdies; read only the digit inside.\n- Do not use neighboring holes, totals, printed par, handicaps, yardages, names, or prior images to infer a value.\n- If the cell does not clearly contain a handwritten score, return null.\n";
+const sharp = require('sharp');
 const V21_SINGLE_CELL_RULES = "\nV2.1 SINGLE-CELL DIGIT TEST:\n- First identify only the visible player rows in the current image.\n- For each visible player, preserve the 18 hole positions exactly.\n- Do not invent or pad missing players.\n- For digit recognition, treat each hole as an independent one-digit classification task.\n- Valid handwritten player scores are normally 2,3,4,5,6,7. A 1 is allowed only if it is clearly written; a circle around a digit is a birdie mark and must be ignored when reading the digit.\n- Never infer a score from neighboring holes, totals, par, handicap, or score patterns.\n- If a digit is not clear enough, return null for that hole rather than guessing.\n- Do not reorder, shift, smooth, or fill holes.\n";
 const V20_CLEAN_PLAYER_RULES = "\nV2.0 CLEAN PLAYER PIPELINE:\n- Return ONLY players whose names or handwritten score rows are visibly present in this image.\n- Never pad the result to 4 or 5 players.\n- Never reuse names or scores from prior requests, examples, defaults, or previous images.\n- If the image shows only one player row, return exactly one player object.\n- If a visible named player row has no scores, return that player's name with 18 null scores only if the row itself is visibly present.\n- Never fabricate a player to satisfy an expected foursome/fivesome count.\n";
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
@@ -39,7 +41,7 @@ exports.handler = async function handler(event) {
         rawNamesResponse: nameResult.rawText,
         rawPlayerRowResponses: rawRows
       },
-      ocrMode: 'single-cell-digit-test-v2.1',
+      ocrMode: 'true-cell-crop-v2.2',
       warning: players.some(p => p.uncertainHoles.length)
         ? 'Raw diagnostic mode. No prior-card examples are embedded in the prompts.'
         : undefined
@@ -225,4 +227,77 @@ function reply(statusCode, body) {
     },
     body: JSON.stringify(body)
   };
+}
+
+
+async function readSingleDigitCell(openai, cellBuffer) {
+  const b64 = cellBuffer.toString('base64');
+  const response = await openai.responses.create({
+    model: process.env.OPENAI_VISION_MODEL || 'gpt-4.1',
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text:
+          'Read exactly ONE handwritten golf score from this single score box. ' +
+          'Return JSON only: {"digit":N,"uncertain":true|false}. ' +
+          'N must be 1,2,3,4,5,6,7 or null. ' +
+          'Ignore any circle around a birdie; read only the digit. ' +
+          'If the box is blank or unclear, use null. Do not infer from golf logic.'
+        },
+        { type: 'input_image', image_url: `data:image/jpeg;base64,${b64}` }
+      ]
+    }],
+    text: { format: { type: 'json_object' } }
+  });
+  const text = response.output_text || '{}';
+  try {
+    const parsed = JSON.parse(text);
+    const d = parsed.digit;
+    return {
+      digit: [1,2,3,4,5,6,7].includes(d) ? d : null,
+      uncertain: !!parsed.uncertain || ![1,2,3,4,5,6,7].includes(d)
+    };
+  } catch {
+    return { digit: null, uncertain: true };
+  }
+}
+
+async function cropRowInto18Cells(rowBuffer) {
+  const meta = await sharp(rowBuffer).metadata();
+  const width = meta.width || 1800;
+  const height = meta.height || 120;
+
+  // The player-row crop should already span Hole 1 through Hole 18.
+  // Split evenly into 18 cells. A small inner inset trims printed grid lines.
+  const cells = [];
+  for (let i = 0; i < 18; i++) {
+    const x0 = Math.floor((i * width) / 18);
+    const x1 = Math.floor(((i + 1) * width) / 18);
+    const cellW = Math.max(1, x1 - x0);
+    const insetX = Math.min(3, Math.floor(cellW * 0.08));
+    const insetY = Math.min(3, Math.floor(height * 0.08));
+    const left = Math.min(width - 1, x0 + insetX);
+    const top = Math.min(height - 1, insetY);
+    const w = Math.max(1, Math.min(width - left, cellW - insetX * 2));
+    const h = Math.max(1, Math.min(height - top, height - insetY * 2));
+    const buf = await sharp(rowBuffer)
+      .extract({ left, top, width: w, height: h })
+      .resize({ width: 180, height: 180, fit: 'contain', background: '#ffffff' })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    cells.push(buf);
+  }
+  return cells;
+}
+
+async function read18Cells(openai, rowBuffer) {
+  const cells = await cropRowInto18Cells(rowBuffer);
+  const scores = [];
+  const uncertainHoles = [];
+  for (let i = 0; i < cells.length; i++) {
+    const result = await readSingleDigitCell(openai, cells[i]);
+    scores.push(result.digit);
+    if (result.uncertain) uncertainHoles.push(i + 1);
+  }
+  return { scores, uncertainHoles };
 }
