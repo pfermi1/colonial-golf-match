@@ -166,3 +166,13 @@ Key changes:
 - The wider OUT gap between Holes 9 and 10 is explicitly preserved.
 
 Acceptance criterion: all 18 diagnostic tiles should show Paul's corresponding handwritten scores, starting with Hole 1 rather than Hole 3 and staying on Paul's row.
+
+## v3.3 Y-Offset Calibration
+Still no digit OCR.
+
+This is intentionally a Y-only change:
+- v3.2 X positions are preserved exactly.
+- The crop center is shifted downward from the detected handwritten-name center by approximately one handwritten-name height.
+- The crop height is slightly tightened to reduce bleed from the printed HANDICAP row above.
+
+Acceptance criterion: all 18 tiles should move from the HANDICAP row onto Paul's handwritten score row. Horizontal hole alignment will be evaluated only after Y is correct.

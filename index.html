@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 3.2 · Name-Y + Colonial-X Calibration</p>
+      <p class="help compact-help">Version 3.3 · Y-Offset Calibration</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,7 +104,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 3.2 · Name-Y + Colonial-X Calibration</footer>
+    <footer class="version-footer">Version 3.3 · Y-Offset Calibration</footer>
   
 
 
@@ -112,11 +112,11 @@
   <div class="panel-header">
     <div>
       <div class="eyebrow">DEBUG</div>
-      <h2>18 Name-Y + Colonial-X Crops</h2>
+      <h2>18 Y-Offset Calibrated Crops</h2>
     </div>
     <button id="backFromGeometryButton" class="secondary" type="button">Back</button>
   </div>
-  <p>v3.2 trusts the handwritten player-name center for Y and uses calibrated Colonial front-nine/back-nine X positions with the OUT gap explicitly accounted for. Still no digit OCR.</p>
+  <p>v3.3 keeps the v3.2 Colonial X positions unchanged and shifts the score-row crop down from the handwritten-name anchor to move off the printed HANDICAP row and onto Paul’s score row. Still no digit OCR.</p>
   <div id="geometryDiagnosticMeta" class="status"></div>
   <div id="geometryDiagnosticGrid" class="cell-diagnostic-grid"></div>
 </section>

@@ -160,7 +160,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then using name-Y plus calibrated Colonial Hole 1–18 X positions...';
+  status.textContent = 'Locating the physical card and first player name, then applying the v3.3 downward Y calibration while keeping the v3.2 X positions unchanged...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -899,10 +899,13 @@ function renderGeometryDiagnostics(payload) {
 
   const cardBox = payload?.debug?.geometry?.cardBox || null;
   const nameBox = payload?.debug?.geometry?.nameBox || null;
+  const nameCenterY = payload?.debug?.nameCenterY;
+  const yOffset = payload?.debug?.yOffset;
   const rowCenterY = payload?.debug?.rowCenterY;
   geometryDiagnosticMeta.textContent =
     `${playerName} — ${cells.length} crops. ` +
-    `Card: ${JSON.stringify(cardBox)} · Name: ${JSON.stringify(nameBox)} · Row center Y: ${rowCenterY}`;
+    `Card: ${JSON.stringify(cardBox)} · Name: ${JSON.stringify(nameBox)} · ` +
+    `Name center Y: ${nameCenterY} · Y offset: ${yOffset} · Crop center Y: ${rowCenterY}`;
 
   if (!cells.length) {
     geometryDiagnosticGrid.innerHTML =
