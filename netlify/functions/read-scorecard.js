@@ -1,3 +1,4 @@
+const V20_CLEAN_PLAYER_RULES = "\nV2.0 CLEAN PLAYER PIPELINE:\n- Return ONLY players whose names or handwritten score rows are visibly present in this image.\n- Never pad the result to 4 or 5 players.\n- Never reuse names or scores from prior requests, examples, defaults, or previous images.\n- If the image shows only one player row, return exactly one player object.\n- If a visible named player row has no scores, return that player's name with 18 null scores only if the row itself is visibly present.\n- Never fabricate a player to satisfy an expected foursome/fivesome count.\n";
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
 exports.handler = async function handler(event) {
@@ -37,7 +38,7 @@ exports.handler = async function handler(event) {
         rawNamesResponse: nameResult.rawText,
         rawPlayerRowResponses: rawRows
       },
-      ocrMode: 'raw-diagnostic-v1.9',
+      ocrMode: 'clean-player-pipeline-v2.0',
       warning: players.some(p => p.uncertainHoles.length)
         ? 'Raw diagnostic mode. No prior-card examples are embedded in the prompts.'
         : undefined

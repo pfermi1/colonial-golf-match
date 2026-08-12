@@ -24,3 +24,14 @@ Diagnostic test: use the cropped photo containing only Paul's handwritten row. E
 
 ## v1.9 raw diagnostic
 This build displays the exact JSON returned by the OCR function before the normal review screen. It also removes hard-coded example player names and example score sequences from the OCR prompts, because those examples can bias a vision model toward inventing prior-looking names/scores. The cropped-Paul test should now reveal exactly what the server sees and returns.
+
+
+## v2.0 focus
+This build separates the display pipeline from prior-card state. The app now renders only the player objects actually returned by OCR, rather than padding or reusing players from an earlier card.
+
+Primary diagnostic test:
+1. Use the cropped Paul-only image.
+2. Expected normal review: Paul only.
+3. No Steve, Dec, Craig, Mike, or other player should appear unless visible in the current image.
+
+OCR accuracy itself is intentionally not re-architected in this build; v2.0 first removes the phantom-player/display contamination bug so future OCR tuning can be measured cleanly.

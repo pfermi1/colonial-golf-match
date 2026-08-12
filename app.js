@@ -1,4 +1,41 @@
 
+function normalizeOcrPlayersOnly(payload) {
+  const rawPlayers = Array.isArray(payload?.players) ? payload.players : [];
+  return rawPlayers
+    .filter((p) => p && (p.name || (Array.isArray(p.scores) && p.scores.some(v => v !== null && v !== undefined && v !== ''))))
+    .map((p) => ({
+      ...p,
+      name: typeof p.name === 'string' ? p.name.trim() : '',
+      scores: Array.isArray(p.scores)
+        ? p.scores.slice(0, 18).map((v) => {
+            if (v === null || v === undefined || v === '') return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          })
+        : Array(18).fill(null)
+    }));
+}
+
+function clearAllPriorCardStateV20() {
+  try {
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (/card|player|score|ocr|review|match|round|calc/i.test(key)) {
+        try { localStorage.removeItem(key); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  try {
+    const keys = Object.keys(sessionStorage);
+    for (const key of keys) {
+      if (/card|player|score|ocr|review|match|round|calc/i.test(key)) {
+        try { sessionStorage.removeItem(key); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+
 function clearPreviousOcrState() {
   try {
     [
@@ -746,4 +783,13 @@ continueFromRawButton?.addEventListener('click', () => {
   renderReview(currentData);
   showPanel(reviewPanel);
   window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('input[type="file"]').forEach((input) => {
+    if (input.dataset.v20CleanPlayerPipeline) return;
+    input.dataset.v20CleanPlayerPipeline = '1';
+    input.addEventListener('click', clearAllPriorCardStateV20);
+    input.addEventListener('change', clearAllPriorCardStateV20);
+  });
 });
