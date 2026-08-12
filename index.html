@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 2.2 · True Cell-Crop OCR</p>
+      <p class="help compact-help">Version 2.3 · Visible Cell-Crop Diagnostic</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -104,8 +104,23 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 2.2 · True Cell-Crop OCR</footer>
+    <footer class="version-footer">Version 2.3 · Visible Cell-Crop Diagnostic</footer>
   
+
+<section id="cellDiagnosticPanel" class="panel hidden">
+  <div class="panel-header">
+    <div>
+      <div class="eyebrow">DEBUG</div>
+      <h2>18 Actual OCR Cell Crops</h2>
+    </div>
+    <button id="backFromCellsButton" class="secondary" type="button">Back</button>
+  </div>
+  <p>These are the exact hole images sent to OCR. Each tile shows the cropped image and the digit returned for that hole.</p>
+  <div id="cellDiagnosticMeta" class="status"></div>
+  <div id="cellDiagnosticGrid" class="cell-diagnostic-grid"></div>
+  <button id="continueFromCellsButton" class="primary" type="button">Continue to normal review</button>
+</section>
+
 <section id="rawOcrPanel" class="panel hidden">
   <div class="panel-header">
     <div>

@@ -1,11 +1,10 @@
-const V22_CELL_RULES = "\nV2.2 TRUE CELL-CROP OCR:\n- The server physically crops each visible player's 18 hole cells before digit recognition.\n- Each digit read receives ONLY one hole-cell image.\n- Return exactly one of: 1,2,3,4,5,6,7 or null.\n- Ignore circles around birdies; read only the digit inside.\n- Do not use neighboring holes, totals, printed par, handicaps, yardages, names, or prior images to infer a value.\n- If the cell does not clearly contain a handwritten score, return null.\n";
 const sharp = require('sharp');
-const V21_SINGLE_CELL_RULES = "\nV2.1 SINGLE-CELL DIGIT TEST:\n- First identify only the visible player rows in the current image.\n- For each visible player, preserve the 18 hole positions exactly.\n- Do not invent or pad missing players.\n- For digit recognition, treat each hole as an independent one-digit classification task.\n- Valid handwritten player scores are normally 2,3,4,5,6,7. A 1 is allowed only if it is clearly written; a circle around a digit is a birdie mark and must be ignored when reading the digit.\n- Never infer a score from neighboring holes, totals, par, handicap, or score patterns.\n- If a digit is not clear enough, return null for that hole rather than guessing.\n- Do not reorder, shift, smooth, or fill holes.\n";
-const V20_CLEAN_PLAYER_RULES = "\nV2.0 CLEAN PLAYER PIPELINE:\n- Return ONLY players whose names or handwritten score rows are visibly present in this image.\n- Never pad the result to 4 or 5 players.\n- Never reuse names or scores from prior requests, examples, defaults, or previous images.\n- If the image shows only one player row, return exactly one player object.\n- If a visible named player row has no scores, return that player's name with 18 null scores only if the row itself is visibly present.\n- Never fabricate a player to satisfy an expected foursome/fivesome count.\n";
+
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
 exports.handler = async function handler(event) {
   if (event.httpMethod !== 'POST') return reply(405, { error: 'Method not allowed.' });
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
 
@@ -18,20 +17,59 @@ exports.handler = async function handler(event) {
 
     const playerCount = [4, 5].includes(Number(expectedPlayers)) ? Number(expectedPlayers) : 4;
 
-    // v1.5 deliberately separates "who are the players?" from "what are this
-    // player's 18 scores?". The full image is supplied to every request, but
-    // each scoring request is constrained to one handwritten row only. This is
-    // meant to prevent vertical drift into the next player's row.
-    const nameResult = await locatePlayerNames(apiKey, imageDataUrl, playerCount);
+    // Normalize orientation and use this exact image both for geometry and OCR.
+    const inputBuffer = dataUrlToBuffer(imageDataUrl);
+    const normalizedBuffer = await sharp(inputBuffer)
+      .rotate()
+      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+
+    const meta = await sharp(normalizedBuffer).metadata();
+    const width = meta.width;
+    const height = meta.height;
+    const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
+
+    const nameResult = await locatePlayerNames(apiKey, normalizedDataUrl, playerCount);
     const visibleNames = nameResult.names;
     const players = [];
-    const rawRows = [];
+    const rowGeometry = [];
+    const allCellDiagnostics = [];
 
     for (let playerIndex = 0; playerIndex < visibleNames.length; playerIndex++) {
       const name = visibleNames[playerIndex];
-      const rowResult = await readOnePlayerRow(apiKey, imageDataUrl, playerIndex, name, visibleNames.length);
-      rawRows.push(rowResult.__rawText || '');
-      players.push(normalizePlayerRow(rowResult, name));
+
+      const geometry = await locatePlayerNineBoxes(
+        apiKey,
+        normalizedDataUrl,
+        playerIndex,
+        name,
+        visibleNames.length
+      );
+
+      rowGeometry.push({ name, ...geometry });
+
+      const playerResult = await readPlayerFromTrueCells(
+        apiKey,
+        normalizedBuffer,
+        width,
+        height,
+        name,
+        geometry
+      );
+
+      players.push({
+        name,
+        scores: playerResult.scores,
+        uncertainHoles: playerResult.uncertainHoles
+      });
+
+      allCellDiagnostics.push({
+        name,
+        frontBox: geometry.front,
+        backBox: geometry.back,
+        cells: playerResult.cells
+      });
     }
 
     return reply(200, {
@@ -39,124 +77,216 @@ exports.handler = async function handler(event) {
       debug: {
         visibleNameCount: visibleNames.length,
         rawNamesResponse: nameResult.rawText,
-        rawPlayerRowResponses: rawRows
+        rowGeometry,
+        cellDiagnostics: allCellDiagnostics
       },
-      ocrMode: 'true-cell-crop-v2.2',
-      warning: players.some(p => p.uncertainHoles.length)
-        ? 'Raw diagnostic mode. No prior-card examples are embedded in the prompts.'
-        : undefined
+      ocrMode: 'true-cell-crop-diagnostic-v2.3'
     });
   } catch (error) {
-    console.error('v1.9 scorecard read failed:', error);
+    console.error('v2.3 scorecard read failed:', error);
     return reply(500, { error: friendlyError(error) });
   }
 };
 
 async function locatePlayerNames(apiKey, imageDataUrl, playerCount) {
   const prompt = `
-This is a literal transcription task on ONE photographed golf scorecard image.
+Literal transcription task. Look only at THIS photographed scorecard.
 
-Identify only handwritten PLAYER NAMES that are visibly present in the score-entry area.
-Do not infer, remember, autocomplete, or invent names.
-Do not use names from any previous request.
-Do not use printed course labels as player names.
-If only one handwritten player name is visible, return only that one name.
-If no handwritten player names are visible, return an empty array.
+Identify handwritten PLAYER NAMES visibly present in the score-entry area.
+Do not invent, remember, autocomplete, or reuse names.
+If only one handwritten name is visible, return exactly one.
+If no handwritten names are visible, return none.
 
-Return ONLY JSON with this shape:
-{
-  "names": []
-}
-The names array may contain from 0 through ${playerCount} visible handwritten names. No placeholders.`;
+Return JSON only:
+{"names":[]}
+
+Maximum ${playerCount} names. No placeholders.`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 400);
+  ], 300);
 
   const rawText = extractOutputText(raw);
   const parsed = parseJson(rawText);
   const source = Array.isArray(parsed?.names) ? parsed.names.slice(0, playerCount) : [];
+
   return {
-    names: source.map(name => String(name || '').trim()).filter(Boolean),
+    names: source.map(v => String(v || '').trim()).filter(Boolean),
     rawText
   };
 }
 
-async function readOnePlayerRow(apiKey, imageDataUrl, playerIndex, playerName, playerCount) {
+async function locatePlayerNineBoxes(apiKey, imageDataUrl, playerIndex, playerName, playerCount) {
   const ordinal = ordinalWord(playerIndex + 1);
+
   const prompt = `
-You are transcribing ONE handwritten player row from a photographed Colonial Golf Club paper scorecard.
+You are locating grid geometry on ONE Colonial golf scorecard image.
 
-Read ONLY the ${ordinal} handwritten player row out of ${playerCount} player rows in the score-entry area immediately above the printed PAR row.
-The player is labeled approximately ${JSON.stringify(playerName)}.
+Target: the ${ordinal} handwritten player row out of ${playerCount} visible player rows.
+Player name is approximately ${JSON.stringify(playerName)}.
 
-THIS IS A CONSERVATIVE TRANSCRIPTION TASK. ACCURACY IS MORE IMPORTANT THAN COMPLETENESS.
+Return TWO bounding boxes:
+1) "front": ONLY the 9 handwritten score cells for holes 1 through 9.
+2) "back": ONLY the 9 handwritten score cells for holes 10 through 18.
 
-STRICT RULES:
-- Make ONE transcription only. Do not revise a digit because a neighboring score "looks more likely".
-- Ignore every handwritten score row above and below this player's row.
-- If this named player's row is not visibly present in THIS image, return 18 nulls. Never synthesize a row.
-- Anchor every value to the printed hole column directly above it: Holes 1-9, then Holes 10-18.
-- Never shift a score left or right to fill a missing or uncertain cell.
-- Never infer a pattern from neighboring scores. A sequence such as 5,4,3,4,3,4 must be copied exactly as written, not smoothed into repeated 4s.
-- Distinguish handwritten 3, 4, 5, 6, and 7 by their visible strokes. If you cannot confidently distinguish the digit in its exact cell, return null for that hole.
-- IMPORTANT BIRDIE CONVENTION: scorers often DRAW A CIRCLE AROUND A BIRDIE SCORE. The circle is only a mark around the score. Ignore the circle itself and transcribe the single handwritten digit INSIDE the circle. Do not read the surrounding circle as 0, 6, 8, 9, or as part of a two-digit number.
-- Use the PRINTED PAR row for the same hole only as a visual sanity clue when interpreting a circled score: a circled birdie is normally one less than that printed par. Do NOT invent or force a birdie merely because a circle-like mark is present; the visible handwritten digit remains the primary evidence.
-- For uncircled scores, do not change a visible digit just because another score would be more statistically likely.
-- Do not borrow a digit from OUT, IN, TOT, PAR, HCP, NET, yardage, another player, or any 1 Ball / 2 Ball / 2+3 Ball row.
-- Do not invent Hole 9 or Hole 18 merely to complete the row.
-- For this current group, individual scores are integers 1 through 7. Values outside 1-7 must be null.
-- A clearly written 1 may be returned as 1, but ALWAYS flag that hole as uncertain for human hole-in-one confirmation.
-- It is acceptable to return several nulls. A blank/highlighted cell is preferable to a confident wrong score.
+Important:
+- Exclude the handwritten player name.
+- Exclude OUT, IN, TOT, HCP, NET cells and totals.
+- Exclude printed PAR/HANDICAP/yardage rows above/below.
+- Each box should tightly cover the full nine score cells from the left edge of the first score cell to the right edge of the ninth score cell.
+- Coordinates are normalized integers from 0 to 1000 relative to the full image:
+  left=0 is image left, top=0 is image top, right=1000 is image right, bottom=1000 is image bottom.
+- If you cannot locate a box confidently, set it to null. Never guess another player's row.
 
-Before producing JSON, visually trace this one player's row from Hole 1 to Hole 18 and preserve the physical column position of every digit.
-
-Return ONLY JSON in this exact shape:
+Return JSON only:
 {
-  "name": ${JSON.stringify(playerName)},
-  "scores": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
-  "uncertainHoles": []
-}
-There must be exactly 18 score entries. Replace each null only when a handwritten score is visibly present in that exact hole cell. Use null for any unreadable, ambiguous, or absent cell.`;
+  "front":{"left":0,"top":0,"right":0,"bottom":0},
+  "back":{"left":0,"top":0,"right":0,"bottom":0}
+}`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 950);
+  ], 450);
 
-  const rawText = extractOutputText(raw);
-  const parsed = parseJson(rawText);
-  parsed.__rawText = rawText;
-  return parsed;
+  const parsed = parseJson(extractOutputText(raw));
+  return {
+    front: normalizeBox(parsed?.front),
+    back: normalizeBox(parsed?.back)
+  };
 }
 
-function normalizePlayerRow(rawPlayer, fallbackName) {
-  const rawScores = Array.isArray(rawPlayer?.scores) ? rawPlayer.scores : [];
-  const uncertain = new Set(Array.isArray(rawPlayer?.uncertainHoles) ? rawPlayer.uncertainHoles.map(Number) : []);
+async function readPlayerFromTrueCells(apiKey, imageBuffer, imageWidth, imageHeight, playerName, geometry) {
+  const scores = Array(18).fill(null);
+  const uncertainHoles = [];
+  const cells = [];
 
-  const scores = Array.from({ length: 18 }, (_, index) => {
-    const value = rawScores[index];
-    if (value == null || value === '') {
-      uncertain.add(index + 1);
-      return null;
+  const halves = [
+    { label: 'front', box: geometry.front, startHole: 1 },
+    { label: 'back', box: geometry.back, startHole: 10 }
+  ];
+
+  for (const half of halves) {
+    if (!half.box) {
+      for (let j = 0; j < 9; j++) {
+        const hole = half.startHole + j;
+        uncertainHoles.push(hole);
+        cells.push({ hole, half: half.label, digit: null, uncertain: true, imageDataUrl: null, error: 'nine-box not located' });
+      }
+      continue;
     }
-    const score = Number(value);
-    if (!Number.isInteger(score) || score < 1 || score > 7) {
-      uncertain.add(index + 1);
-      return null;
+
+    const nineBuffer = await extractNormalizedBox(imageBuffer, imageWidth, imageHeight, half.box);
+    const nineMeta = await sharp(nineBuffer).metadata();
+    const nineWidth = nineMeta.width;
+    const nineHeight = nineMeta.height;
+
+    for (let j = 0; j < 9; j++) {
+      const hole = half.startHole + j;
+
+      // Physically split the located 9-hole grid into nine equal-width cells.
+      const x0 = Math.floor(j * nineWidth / 9);
+      const x1 = Math.floor((j + 1) * nineWidth / 9);
+      const rawW = Math.max(1, x1 - x0);
+
+      // Trim a small amount from the four edges to reduce printed grid lines.
+      const trimX = Math.max(1, Math.floor(rawW * 0.07));
+      const trimY = Math.max(1, Math.floor(nineHeight * 0.08));
+
+      const left = Math.min(nineWidth - 1, x0 + trimX);
+      const top = Math.min(nineHeight - 1, trimY);
+      const cellW = Math.max(1, Math.min(nineWidth - left, rawW - trimX * 2));
+      const cellH = Math.max(1, Math.min(nineHeight - top, nineHeight - trimY * 2));
+
+      const cellBuffer = await sharp(nineBuffer)
+        .extract({ left, top, width: cellW, height: cellH })
+        .resize({ width: 220, height: 220, fit: 'contain', background: '#ffffff' })
+        .sharpen()
+        .jpeg({ quality: 94 })
+        .toBuffer();
+
+      const read = await readSingleCell(apiKey, cellBuffer, hole);
+      scores[hole - 1] = read.digit;
+      if (read.uncertain || read.digit == null) uncertainHoles.push(hole);
+
+      cells.push({
+        hole,
+        half: half.label,
+        digit: read.digit,
+        uncertain: read.uncertain,
+        imageDataUrl: `data:image/jpeg;base64,${cellBuffer.toString('base64')}`
+      });
     }
-    if (score === 1) uncertain.add(index + 1);
-    return score;
-  });
+  }
+
+  return { scores, uncertainHoles: [...new Set(uncertainHoles)].sort((a,b)=>a-b), cells };
+}
+
+async function readSingleCell(apiKey, cellBuffer, hole) {
+  const cellDataUrl = `data:image/jpeg;base64,${cellBuffer.toString('base64')}`;
+
+  const prompt = `
+This image contains exactly ONE golf score box for Hole ${hole}.
+
+Read the single HANDWRITTEN score digit inside this box.
+Return one of 1,2,3,4,5,6,7 or null.
+
+Rules:
+- Ignore the printed border/grid line.
+- A circle may surround a birdie. Ignore the circle and read only the digit inside.
+- Do not infer from par, neighboring holes, totals, or golf logic; none are available to you.
+- If no handwritten digit is clearly visible, return null and uncertain=true.
+- If the digit could reasonably be confused with another digit, uncertain=true.
+
+Return JSON only:
+{"digit":null,"uncertain":true}`;
+
+  const raw = await callVision(apiKey, [
+    { type: 'input_text', text: prompt },
+    { type: 'input_image', image_url: cellDataUrl, detail: 'high' }
+  ], 160);
+
+  const parsed = parseJson(extractOutputText(raw));
+  const digit = Number(parsed?.digit);
+  const valid = Number.isInteger(digit) && digit >= 1 && digit <= 7;
 
   return {
-    name: String(rawPlayer?.name || fallbackName || '').trim() || fallbackName,
-    scores,
-    uncertainHoles: [...uncertain]
-      .filter(n => Number.isInteger(n) && n >= 1 && n <= 18)
-      .sort((a, b) => a - b)
+    digit: valid ? digit : null,
+    uncertain: Boolean(parsed?.uncertain) || !valid || digit === 1
   };
+}
+
+async function extractNormalizedBox(imageBuffer, imageWidth, imageHeight, box) {
+  const left = clamp(Math.floor(box.left / 1000 * imageWidth), 0, imageWidth - 1);
+  const top = clamp(Math.floor(box.top / 1000 * imageHeight), 0, imageHeight - 1);
+  const right = clamp(Math.ceil(box.right / 1000 * imageWidth), left + 1, imageWidth);
+  const bottom = clamp(Math.ceil(box.bottom / 1000 * imageHeight), top + 1, imageHeight);
+
+  return sharp(imageBuffer)
+    .extract({ left, top, width: right - left, height: bottom - top })
+    .jpeg({ quality: 94 })
+    .toBuffer();
+}
+
+function normalizeBox(box) {
+  if (!box || typeof box !== 'object') return null;
+  const left = Number(box.left);
+  const top = Number(box.top);
+  const right = Number(box.right);
+  const bottom = Number(box.bottom);
+
+  if (![left, top, right, bottom].every(Number.isFinite)) return null;
+  if (left < 0 || top < 0 || right > 1000 || bottom > 1000) return null;
+  if (right - left < 30 || bottom - top < 10) return null;
+
+  return { left, top, right, bottom };
+}
+
+function dataUrlToBuffer(dataUrl) {
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) throw new Error('Invalid image data.');
+  return Buffer.from(dataUrl.slice(comma + 1), 'base64');
 }
 
 function ordinalWord(n) {
@@ -200,13 +330,14 @@ function parseJson(text) {
   const cleaned = String(text || '').trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
+
   try {
     return JSON.parse(cleaned);
   } catch (_) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error('The scorecard reader returned an unreadable response. Please try the photo again.');
+    throw new Error('The scorecard reader returned an unreadable response.');
   }
 }
 
@@ -218,6 +349,10 @@ function friendlyError(error) {
   return message;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function reply(statusCode, body) {
   return {
     statusCode,
@@ -227,77 +362,4 @@ function reply(statusCode, body) {
     },
     body: JSON.stringify(body)
   };
-}
-
-
-async function readSingleDigitCell(openai, cellBuffer) {
-  const b64 = cellBuffer.toString('base64');
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_VISION_MODEL || 'gpt-4.1',
-    input: [{
-      role: 'user',
-      content: [
-        { type: 'input_text', text:
-          'Read exactly ONE handwritten golf score from this single score box. ' +
-          'Return JSON only: {"digit":N,"uncertain":true|false}. ' +
-          'N must be 1,2,3,4,5,6,7 or null. ' +
-          'Ignore any circle around a birdie; read only the digit. ' +
-          'If the box is blank or unclear, use null. Do not infer from golf logic.'
-        },
-        { type: 'input_image', image_url: `data:image/jpeg;base64,${b64}` }
-      ]
-    }],
-    text: { format: { type: 'json_object' } }
-  });
-  const text = response.output_text || '{}';
-  try {
-    const parsed = JSON.parse(text);
-    const d = parsed.digit;
-    return {
-      digit: [1,2,3,4,5,6,7].includes(d) ? d : null,
-      uncertain: !!parsed.uncertain || ![1,2,3,4,5,6,7].includes(d)
-    };
-  } catch {
-    return { digit: null, uncertain: true };
-  }
-}
-
-async function cropRowInto18Cells(rowBuffer) {
-  const meta = await sharp(rowBuffer).metadata();
-  const width = meta.width || 1800;
-  const height = meta.height || 120;
-
-  // The player-row crop should already span Hole 1 through Hole 18.
-  // Split evenly into 18 cells. A small inner inset trims printed grid lines.
-  const cells = [];
-  for (let i = 0; i < 18; i++) {
-    const x0 = Math.floor((i * width) / 18);
-    const x1 = Math.floor(((i + 1) * width) / 18);
-    const cellW = Math.max(1, x1 - x0);
-    const insetX = Math.min(3, Math.floor(cellW * 0.08));
-    const insetY = Math.min(3, Math.floor(height * 0.08));
-    const left = Math.min(width - 1, x0 + insetX);
-    const top = Math.min(height - 1, insetY);
-    const w = Math.max(1, Math.min(width - left, cellW - insetX * 2));
-    const h = Math.max(1, Math.min(height - top, height - insetY * 2));
-    const buf = await sharp(rowBuffer)
-      .extract({ left, top, width: w, height: h })
-      .resize({ width: 180, height: 180, fit: 'contain', background: '#ffffff' })
-      .jpeg({ quality: 92 })
-      .toBuffer();
-    cells.push(buf);
-  }
-  return cells;
-}
-
-async function read18Cells(openai, rowBuffer) {
-  const cells = await cropRowInto18Cells(rowBuffer);
-  const scores = [];
-  const uncertainHoles = [];
-  for (let i = 0; i < cells.length; i++) {
-    const result = await readSingleDigitCell(openai, cells[i]);
-    scores.push(result.digit);
-    if (result.uncertain) uncertainHoles.push(i + 1);
-  }
-  return { scores, uncertainHoles };
 }

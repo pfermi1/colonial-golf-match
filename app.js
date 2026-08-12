@@ -93,6 +93,11 @@ const backFromComparisonButton = document.querySelector('#backFromComparisonButt
 const holeDialog = document.querySelector('#holeDialog');
 const holeDialogContent = document.querySelector('#holeDialogContent');
 const closeHoleDialog = document.querySelector('#closeHoleDialog');
+const cellDiagnosticPanel = document.querySelector('#cellDiagnosticPanel');
+const cellDiagnosticGrid = document.querySelector('#cellDiagnosticGrid');
+const cellDiagnosticMeta = document.querySelector('#cellDiagnosticMeta');
+const backFromCellsButton = document.querySelector('#backFromCellsButton');
+const continueFromCellsButton = document.querySelector('#continueFromCellsButton');
 const rawOcrPanel = document.querySelector('#rawOcrPanel');
 const rawOcrOutput = document.querySelector('#rawOcrOutput');
 const backFromRawButton = document.querySelector('#backFromRawButton');
@@ -159,7 +164,8 @@ readButton.addEventListener('click', async () => {
     if (!response.ok) throw new Error(payload.error || 'Scorecard reader failed.');
     pendingRawPayload = payload;
     rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
-    showPanel(rawOcrPanel);
+    renderCellDiagnostics(payload);
+    showPanel(cellDiagnosticPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -823,4 +829,58 @@ document.addEventListener('DOMContentLoaded', () => {
   const observer = new MutationObserver(addV22);
   observer.observe(document.body, {subtree:true, childList:true});
   addV22();
+});
+
+
+function renderCellDiagnostics(payload) {
+  cellDiagnosticGrid.innerHTML = '';
+  const groups = payload?.debug?.cellDiagnostics || [];
+  const first = groups[0];
+
+  if (!first) {
+    cellDiagnosticMeta.textContent = 'No player-row cell crops were returned.';
+    return;
+  }
+
+  cellDiagnosticMeta.textContent =
+    `${first.name || 'Player'} — ${first.cells?.length || 0} physical hole crops. ` +
+    `Front box: ${JSON.stringify(first.frontBox)} · Back box: ${JSON.stringify(first.backBox)}`;
+
+  for (const cell of first.cells || []) {
+    const tile = document.createElement('div');
+    tile.className = 'cell-diagnostic-tile';
+
+    if (cell.imageDataUrl) {
+      const img = document.createElement('img');
+      img.src = cell.imageDataUrl;
+      img.alt = `Hole ${cell.hole} OCR crop`;
+      tile.appendChild(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.style.cssText = 'aspect-ratio:1/1;display:grid;place-items:center;background:#f2f4f6;border-radius:8px;';
+      placeholder.textContent = 'No crop';
+      tile.appendChild(placeholder);
+    }
+
+    const hole = document.createElement('div');
+    hole.className = 'cell-diagnostic-hole';
+    hole.textContent = `Hole ${cell.hole}`;
+    tile.appendChild(hole);
+
+    const result = document.createElement('div');
+    result.className = 'cell-diagnostic-result' + (cell.uncertain ? ' uncertain' : '');
+    result.textContent = cell.digit == null ? '?' : String(cell.digit);
+    tile.appendChild(result);
+
+    cellDiagnosticGrid.appendChild(tile);
+  }
+}
+
+backFromCellsButton?.addEventListener('click', () => showPanel(uploadPanel));
+
+continueFromCellsButton?.addEventListener('click', () => {
+  if (!pendingRawPayload) return;
+  rawOcrOutput.textContent = JSON.stringify(pendingRawPayload, null, 2);
+  showPanel(rawOcrPanel);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });

@@ -224,3 +224,39 @@ dialog img { width: 100%; max-height: 82vh; object-fit: contain; }
 /* Version 1.0: fixed-cell OCR is server-side; review UI remains intentionally unchanged. */
 
 @media (max-width: 460px) { .photo-picker { grid-template-columns: 1fr; } .photo-choice { min-height: 70px; } }
+
+.cell-diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+.cell-diagnostic-tile {
+  border: 1px solid #cbd6df;
+  border-radius: 12px;
+  padding: 8px;
+  background: #fff;
+  text-align: center;
+}
+.cell-diagnostic-tile img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 8px;
+}
+.cell-diagnostic-hole {
+  font-weight: 800;
+  margin-top: 4px;
+}
+.cell-diagnostic-result {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: #143f68;
+}
+.cell-diagnostic-result.uncertain {
+  color: #8a6500;
+}
+@media (min-width: 700px) {
+  .cell-diagnostic-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}

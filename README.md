@@ -66,3 +66,19 @@ The intended OCR path is:
 A blank/unclear box should return null and be highlighted. No neighboring scores, totals, par, or golf-pattern logic should be used to guess the digit.
 
 Recommended baseline test: use the same cropped Paul-only image used in v2.0/v2.1.
+
+
+## v2.3 diagnostic
+This build makes the cell-crop experiment visible.
+
+Before normal review, the app shows the exact 18 hole images that were physically cropped and sent to OCR, together with the returned digit for each hole.
+
+The server now:
+1. normalizes photo orientation;
+2. finds the visible player names;
+3. locates separate front-nine and back-nine score-grid boxes for each player;
+4. physically splits each nine into nine individual images;
+5. OCRs each image independently;
+6. returns those exact crop images in the debug payload.
+
+For the current controlled test, use the same Paul-only cropped photo.
