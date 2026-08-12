@@ -138,3 +138,14 @@ v2.9 uses AI only to locate:
 The 18 hole X positions are then taken from fixed Colonial-scorecard template ratios rather than rediscovered from every photo.
 
 Acceptance criterion: using the same landscape Paul test image, all 18 diagnostic tiles should align to Paul's handwritten Hole 1-18 scores with no OUT/IN/TOT contamination.
+
+## v3.0 Name-Y + Fixed-X Geometry
+Still no digit OCR.
+
+v3.0 intentionally combines the two best geometry ideas from prior tests:
+- vertical Y position comes only from the center of the handwritten player's NAME box;
+- horizontal X positions come only from fixed Colonial scorecard hole ratios.
+
+AI no longer guesses a separate score-row Y box.
+
+Acceptance criterion: with the same landscape Paul test photo, all 18 diagnostic tiles should show Paul's handwritten scores in Hole 1-18 order.

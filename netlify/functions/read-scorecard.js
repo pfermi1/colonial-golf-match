@@ -2,9 +2,9 @@ const sharp = require('sharp');
 
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
-// Colonial scorecard fixed-template hole centers, normalized within the card rectangle.
-// These ratios are based on the known printed Colonial layout:
-// 1-9 on the left half, 10-18 on the right half, excluding OUT/IN/TOT/HCP/NET.
+// Fixed Colonial hole-center ratios inside the physical scorecard rectangle.
+// These are intentionally reused from v2.9 because the horizontal template
+// approach was the strongest X-positioning result so far.
 const HOLE_X_RATIOS = [
   0.190, 0.225, 0.260, 0.295, 0.330, 0.365, 0.400, 0.435, 0.470,
   0.555, 0.590, 0.625, 0.660, 0.695, 0.730, 0.765, 0.800, 0.835
@@ -37,33 +37,42 @@ exports.handler = async function handler(event) {
     const height = meta.height;
     const normalizedDataUrl = `data:image/jpeg;base64,${normalizedBuffer.toString('base64')}`;
 
-    // One vision call only:
-    // locate physical scorecard rectangle + first handwritten player row.
-    const geometry = await locateCardAndFirstRow(apiKey, normalizedDataUrl);
+    // ONE vision call:
+    // locate physical card + tight handwritten name box only.
+    const geometry = await locateCardAndFirstPlayerName(apiKey, normalizedDataUrl);
 
-    if (!geometry.cardBox || !geometry.rowBox) {
+    if (!geometry.cardBox || !geometry.nameBox) {
       return reply(200, {
-        ocrMode: 'fixed-template-geometry-v2.9',
+        ocrMode: 'name-y-plus-fixed-x-v3.0',
         playerName: geometry.name || '',
-        message: 'Could not confidently locate the scorecard and first handwritten player row.',
+        message: 'Could not confidently locate the card and first handwritten player name.',
         debug: { geometry, cells: [] }
       });
     }
 
     const cardPx = normBoxToPixels(geometry.cardBox, width, height);
-    const rowPx = normBoxToPixels(geometry.rowBox, width, height);
+    const namePx = normBoxToPixels(geometry.nameBox, width, height);
 
     const cardWidth = cardPx.right - cardPx.left;
-    const rowHeight = rowPx.bottom - rowPx.top;
+    const nameHeight = Math.max(1, namePx.bottom - namePx.top);
 
-    // Hole crop width is derived from neighboring fixed-template centers.
+    // Mechanical Y positioning:
+    // use the vertical center of the handwritten name as the row centerline.
+    const rowCenterY = Math.round((namePx.top + namePx.bottom) / 2);
+
+    // Score row crop height is tied to the actual handwritten-name height,
+    // with a little padding to include the full score digits.
+    const rowCropHeight = Math.max(18, Math.min(90, Math.round(nameHeight * 1.45)));
+    const rowTop = clamp(Math.round(rowCenterY - rowCropHeight / 2), 0, height - 2);
+    const rowBottom = clamp(rowTop + rowCropHeight, rowTop + 1, height);
+
     const spacings = [];
     for (let i = 1; i < HOLE_X_RATIOS.length; i++) {
       spacings.push((HOLE_X_RATIOS[i] - HOLE_X_RATIOS[i - 1]) * cardWidth);
     }
     spacings.sort((a, b) => a - b);
     const medianSpacing = spacings[Math.floor(spacings.length / 2)];
-    const cropWidth = Math.max(14, Math.floor(medianSpacing * 0.82));
+    const cropWidth = Math.max(14, Math.floor(medianSpacing * 0.80));
 
     const cells = [];
 
@@ -75,12 +84,12 @@ exports.handler = async function handler(event) {
       const left = clamp(cx - halfW, 0, width - 1);
       const right = clamp(cx + halfW, left + 1, width);
       const cellW = Math.max(1, right - left);
-      const cellH = Math.max(1, rowHeight);
+      const cellH = Math.max(1, rowBottom - rowTop);
 
       const cellBuffer = await sharp(normalizedBuffer)
         .extract({
           left,
-          top: rowPx.top,
+          top: rowTop,
           width: cellW,
           height: cellH
         })
@@ -96,81 +105,86 @@ exports.handler = async function handler(event) {
     }
 
     return reply(200, {
-      ocrMode: 'fixed-template-geometry-v2.9',
+      ocrMode: 'name-y-plus-fixed-x-v3.0',
       playerName: geometry.name || '',
       debug: {
         geometry,
+        rowCenterY,
+        rowCropHeight,
         templateHoleXRatios: HOLE_X_RATIOS,
         cropWidth,
         cells
       }
     });
   } catch (error) {
-    console.error('v2.9 geometry failure:', error);
+    console.error('v3.0 geometry failure:', error);
     return reply(500, {
-      error: error?.message || 'Fixed-template geometry diagnostic failed.',
+      error: error?.message || 'v3.0 geometry diagnostic failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'fixed-template-geometry-v2.9'
+      ocrMode: 'name-y-plus-fixed-x-v3.0'
     });
   }
 };
 
-async function locateCardAndFirstRow(apiKey, imageDataUrl) {
+async function locateCardAndFirstPlayerName(apiKey, imageDataUrl) {
   const prompt = `
 GEOMETRY-ONLY task on ONE photographed Colonial Golf Club scorecard.
 
-Do not transcribe scores.
+Do NOT transcribe any score digits.
 
 Preferred orientation:
 - scorecard is landscape;
-- Hole 1 is at the left and Hole 18 at the right;
+- Hole 1 is left and Hole 18 is right;
 - handwritten player names are on the left;
-- player score rows are between the printed HANDICAP row above and printed PAR row below.
+- player score rows are below the printed HANDICAP row and above the printed PAR row.
 
-Return:
-1) name: the FIRST handwritten player name that has handwritten scores;
-2) cardBox: the outer rectangular boundary of the physical scorecard itself, excluding table, keyboard, knee, etc.;
-3) rowBox: a tight horizontal box around ONLY that player's handwritten score digits from Hole 1 through Hole 18.
-   - Exclude the player name on the left.
-   - Exclude OUT, IN, TOT, HCP, NET totals.
-   - Do not use a blank row above/below.
-   - Do not use printed PAR/HANDICAP rows.
+Find the FIRST handwritten player name that has handwritten scores on the same row.
 
-Coordinates are normalized 0-1000 relative to the full image.
+Return ONLY:
+1) name: the visible handwritten player name;
+2) cardBox: the outer rectangle of the physical scorecard itself;
+3) nameBox: a TIGHT box around only the handwritten player name itself.
+
+CRITICAL:
+- nameBox must tightly surround the handwritten letters of the player's name.
+- Do NOT return the score row as nameBox.
+- Do NOT return a blank row.
+- Do NOT use printed HANDICAP, PAR, yardage, OUT, IN, TOT, HCP or NET text.
+- Exclude table, keyboard, knee and all background from cardBox.
+- Coordinates are normalized integers 0-1000 relative to the full image.
 
 Return JSON only:
 {
   "name":"",
   "cardBox":{"left":0,"top":0,"right":0,"bottom":0},
-  "rowBox":{"left":0,"top":0,"right":0,"bottom":0}
+  "nameBox":{"left":0,"top":0,"right":0,"bottom":0}
 }`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 500);
+  ], 450);
 
   const parsed = parseJson(extractOutputText(raw));
   const name = String(parsed?.name || '').trim();
   const cardBox = normalizeBox(parsed?.cardBox, 120, 120);
-  const rowBox = normalizeBox(parsed?.rowBox, 120, 8);
+  const nameBox = normalizeBox(parsed?.nameBox, 20, 8);
 
-  if (!cardBox || !rowBox) {
-    return { name, cardBox: null, rowBox: null };
+  if (!cardBox || !nameBox) {
+    return { name, cardBox: null, nameBox: null };
   }
 
-  // Mechanical containment: row must sit inside the card.
-  const rowInside =
-    rowBox.left >= cardBox.left &&
-    rowBox.right <= cardBox.right &&
-    rowBox.top >= cardBox.top &&
-    rowBox.bottom <= cardBox.bottom;
+  const nameInside =
+    nameBox.left >= cardBox.left &&
+    nameBox.right <= cardBox.right &&
+    nameBox.top >= cardBox.top &&
+    nameBox.bottom <= cardBox.bottom;
 
-  if (!rowInside) {
-    return { name, cardBox: null, rowBox: null };
+  if (!nameInside) {
+    return { name, cardBox: null, nameBox: null };
   }
 
-  return { name, cardBox, rowBox };
+  return { name, cardBox, nameBox };
 }
 
 function normalizeBox(box, minWidth, minHeight) {
@@ -193,6 +207,7 @@ function normBoxToPixels(box, width, height) {
   const top = clamp(Math.floor(box.top / 1000 * height), 0, height - 1);
   const right = clamp(Math.ceil(box.right / 1000 * width), left + 1, width);
   const bottom = clamp(Math.ceil(box.bottom / 1000 * height), top + 1, height);
+
   return { left, top, right, bottom };
 }
 
@@ -254,7 +269,8 @@ function parseJson(text) {
     if (start >= 0 && end > start) {
       return JSON.parse(cleaned.slice(start, end + 1));
     }
-    throw new Error('The fixed-template geometry locator returned an unreadable response.');
+
+    throw new Error('The v3.0 geometry locator returned an unreadable response.');
   }
 }
 
