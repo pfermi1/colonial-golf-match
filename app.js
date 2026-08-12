@@ -1,3 +1,24 @@
+
+function clearPreviousOcrState() {
+  try {
+    [
+      'currentCard','currentCardPhoto','ocrResult','reviewData',
+      'calculatedCard','matchResults','pendingScores','pendingPlayers'
+    ].forEach((k) => {
+      try { localStorage.removeItem(k); } catch (_) {}
+      try { sessionStorage.removeItem(k); } catch (_) {}
+    });
+  } catch (_) {}
+
+  [
+    '#review','#reviewScreen','#review-screen','#results',
+    '#calculatedCard','#calculated-card','#matchups','#match-results'
+  ].forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.innerHTML = '';
+  });
+}
+
 const cameraInput = document.querySelector('#cameraFile');
 const libraryInput = document.querySelector('#libraryFile');
 const preview = document.querySelector('#preview');
@@ -702,3 +723,13 @@ function resizeImage(file, maxWidth, quality) {
     reader.readAsDataURL(file);
   });
 }
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('input[type="file"]').forEach((input) => {
+    if (input.dataset.v18CleanStateHook) return;
+    input.dataset.v18CleanStateHook = '1';
+    input.addEventListener('click', clearPreviousOcrState);
+    input.addEventListener('change', clearPreviousOcrState);
+  });
+});

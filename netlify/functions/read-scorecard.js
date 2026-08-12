@@ -1,3 +1,4 @@
+const V18_DIAGNOSTIC_RULES = "\nV1.8 CLEAN-STATE DIAGNOSTIC RULES:\n- Treat this request as completely independent from every prior image and request.\n- Only transcribe player names and handwritten hole scores visibly present in THIS image.\n- If a player row is blank, return null/blank for every hole in that row.\n- If a player name is not visible in THIS image, return null/blank. Never invent a name.\n- Never fill missing rows with plausible golf scores.\n- Never infer missing scores from totals, par, handicap, yardages, or other printed numbers.\n- Never carry forward a name or score from a previous row or previous image.\n";
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
 exports.handler = async function handler(event) {

@@ -14,3 +14,9 @@ OCR-focused test build.
 ## Test recommendation
 
 Use the same saved scorecard photos from earlier versions first. That makes it possible to compare OCR accuracy directly from version to version.
+
+
+## v1.8 diagnostic focus
+This build clears prior-card browser state whenever a new photo is selected and explicitly instructs the OCR request to use only information visible in the current image.
+
+Diagnostic test: use the cropped photo containing only Paul's handwritten row. Expected: Paul is read; names/scores not visible in the image remain blank rather than being populated from a prior card.
