@@ -1,4 +1,3 @@
-const V18_DIAGNOSTIC_RULES = "\nV1.8 CLEAN-STATE DIAGNOSTIC RULES:\n- Treat this request as completely independent from every prior image and request.\n- Only transcribe player names and handwritten hole scores visibly present in THIS image.\n- If a player row is blank, return null/blank for every hole in that row.\n- If a player name is not visible in THIS image, return null/blank. Never invent a name.\n- Never fill missing rows with plausible golf scores.\n- Never infer missing scores from totals, par, handicap, yardages, or other printed numbers.\n- Never carry forward a name or score from a previous row or previous image.\n";
 const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1';
 
 exports.handler = async function handler(event) {
@@ -19,55 +18,65 @@ exports.handler = async function handler(event) {
     // player's 18 scores?". The full image is supplied to every request, but
     // each scoring request is constrained to one handwritten row only. This is
     // meant to prevent vertical drift into the next player's row.
-    const names = await locatePlayerNames(apiKey, imageDataUrl, playerCount);
+    const nameResult = await locatePlayerNames(apiKey, imageDataUrl, playerCount);
+    const visibleNames = nameResult.names;
     const players = [];
+    const rawRows = [];
 
-    for (let playerIndex = 0; playerIndex < playerCount; playerIndex++) {
-      const name = String(names[playerIndex] || '').trim() || `Player ${playerIndex + 1}`;
-      const row = await readOnePlayerRow(apiKey, imageDataUrl, playerIndex, name, playerCount);
-      players.push(normalizePlayerRow(row, name));
+    for (let playerIndex = 0; playerIndex < visibleNames.length; playerIndex++) {
+      const name = visibleNames[playerIndex];
+      const rowResult = await readOnePlayerRow(apiKey, imageDataUrl, playerIndex, name, visibleNames.length);
+      rawRows.push(rowResult.__rawText || '');
+      players.push(normalizePlayerRow(rowResult, name));
     }
 
     return reply(200, {
       players,
-      ocrMode: 'birdie-aware-conservative-player-row-v1.7',
+      debug: {
+        visibleNameCount: visibleNames.length,
+        rawNamesResponse: nameResult.rawText,
+        rawPlayerRowResponses: rawRows
+      },
+      ocrMode: 'raw-diagnostic-v1.9',
       warning: players.some(p => p.uncertainHoles.length)
-        ? 'Please review the yellow holes. v1.7 uses one birdie-aware conservative read per player row and does not run any automatic correction pass.'
+        ? 'Raw diagnostic mode. No prior-card examples are embedded in the prompts.'
         : undefined
     });
   } catch (error) {
-    console.error('v1.7 scorecard read failed:', error);
+    console.error('v1.9 scorecard read failed:', error);
     return reply(500, { error: friendlyError(error) });
   }
 };
 
 async function locatePlayerNames(apiKey, imageDataUrl, playerCount) {
   const prompt = `
-You are looking at ONE photographed Colonial Golf Club paper scorecard.
+This is a literal transcription task on ONE photographed golf scorecard image.
 
-Your only job in this first pass is to identify the ${playerCount} handwritten PLAYER NAMES in the score-entry area immediately above the printed PAR row.
+Identify only handwritten PLAYER NAMES that are visibly present in the score-entry area.
+Do not infer, remember, autocomplete, or invent names.
+Do not use names from any previous request.
+Do not use printed course labels as player names.
+If only one handwritten player name is visible, return only that one name.
+If no handwritten player names are visible, return an empty array.
 
-Rules:
-- Read the player names top-to-bottom.
-- Do NOT read any hole scores in this pass.
-- Ignore handwritten betting rows, 1 Ball, 2 Ball, 2+3 Ball, totals, scorer, attest, and printed course information.
-- If a name is unclear, return a short best-effort label such as "Player 3" rather than using a score or printed word as the name.
-
-Return ONLY JSON:
+Return ONLY JSON with this shape:
 {
-  "names": ["Paul", "Steve", "Dec", "Craig"]
+  "names": []
 }
-There must be exactly ${playerCount} entries.`;
+The names array may contain from 0 through ${playerCount} visible handwritten names. No placeholders.`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
-  ], 500);
+  ], 400);
 
-  const parsed = parseJson(extractOutputText(raw));
+  const rawText = extractOutputText(raw);
+  const parsed = parseJson(rawText);
   const source = Array.isArray(parsed?.names) ? parsed.names.slice(0, playerCount) : [];
-  while (source.length < playerCount) source.push(`Player ${source.length + 1}`);
-  return source.map((name, i) => String(name || '').trim() || `Player ${i + 1}`);
+  return {
+    names: source.map(name => String(name || '').trim()).filter(Boolean),
+    rawText
+  };
 }
 
 async function readOnePlayerRow(apiKey, imageDataUrl, playerIndex, playerName, playerCount) {
@@ -83,6 +92,7 @@ THIS IS A CONSERVATIVE TRANSCRIPTION TASK. ACCURACY IS MORE IMPORTANT THAN COMPL
 STRICT RULES:
 - Make ONE transcription only. Do not revise a digit because a neighboring score "looks more likely".
 - Ignore every handwritten score row above and below this player's row.
+- If this named player's row is not visibly present in THIS image, return 18 nulls. Never synthesize a row.
 - Anchor every value to the printed hole column directly above it: Holes 1-9, then Holes 10-18.
 - Never shift a score left or right to fill a missing or uncertain cell.
 - Never infer a pattern from neighboring scores. A sequence such as 5,4,3,4,3,4 must be copied exactly as written, not smoothed into repeated 4s.
@@ -101,17 +111,20 @@ Before producing JSON, visually trace this one player's row from Hole 1 to Hole 
 Return ONLY JSON in this exact shape:
 {
   "name": ${JSON.stringify(playerName)},
-  "scores": [5,4,3,4,3,4,5,5,4,4,4,4,5,4,5,5,4,4],
-  "uncertainHoles": [7]
+  "scores": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  "uncertainHoles": []
 }
-There must be exactly 18 score entries. Use null for any unreadable or ambiguous cell.`;
+There must be exactly 18 score entries. Replace each null only when a handwritten score is visibly present in that exact hole cell. Use null for any unreadable, ambiguous, or absent cell.`;
 
   const raw = await callVision(apiKey, [
     { type: 'input_text', text: prompt },
     { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
   ], 950);
 
-  return parseJson(extractOutputText(raw));
+  const rawText = extractOutputText(raw);
+  const parsed = parseJson(rawText);
+  parsed.__rawText = rawText;
+  return parsed;
 }
 
 function normalizePlayerRow(rawPlayer, fallbackName) {

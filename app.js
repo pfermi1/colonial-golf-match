@@ -55,6 +55,11 @@ const backFromComparisonButton = document.querySelector('#backFromComparisonButt
 const holeDialog = document.querySelector('#holeDialog');
 const holeDialogContent = document.querySelector('#holeDialogContent');
 const closeHoleDialog = document.querySelector('#closeHoleDialog');
+const rawOcrPanel = document.querySelector('#rawOcrPanel');
+const rawOcrOutput = document.querySelector('#rawOcrOutput');
+const backFromRawButton = document.querySelector('#backFromRawButton');
+const continueFromRawButton = document.querySelector('#continueFromRawButton');
+let pendingRawPayload = null;
 
 const STORAGE_KEY = 'colonialGolfMatchCardsV04';
 let imageDataUrl = '';
@@ -114,9 +119,9 @@ readButton.addEventListener('click', async () => {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Scorecard reader failed.');
-    currentData = normalizeData(payload);
-    renderReview(currentData);
-    showPanel(reviewPanel);
+    pendingRawPayload = payload;
+    rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
+    showPanel(rawOcrPanel);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     status.textContent = error.message;
@@ -188,7 +193,7 @@ closeDialog.addEventListener('click', () => photoDialog.close());
 closeHoleDialog.addEventListener('click', () => holeDialog.close());
 
 function showPanel(panel) {
-  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel].forEach(item => item.classList.add('hidden'));
+  [roundPanel, uploadPanel, reviewPanel, ballCardPanel, comparisonPanel, rawOcrPanel].forEach(item => item.classList.add('hidden'));
   panel.classList.remove('hidden');
 }
 
@@ -732,4 +737,13 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('click', clearPreviousOcrState);
     input.addEventListener('change', clearPreviousOcrState);
   });
+});
+
+backFromRawButton?.addEventListener('click', () => showPanel(uploadPanel));
+continueFromRawButton?.addEventListener('click', () => {
+  if (!pendingRawPayload) return;
+  currentData = normalizeData(pendingRawPayload);
+  renderReview(currentData);
+  showPanel(reviewPanel);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
