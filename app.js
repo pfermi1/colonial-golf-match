@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading the full handwritten player rows, then running a local-pattern score proofreader that compares repeated handwriting within each player row and preserves the primary read unless a correction is at least 97% confident...';
+  status.textContent = 'Reading with GPT-5.6 Sol: one full-card semantic handwriting pass, original image detail, no proofreader or consensus...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -871,7 +871,7 @@ function renderCellDiagnostics(payload) {
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
     if (debug.semanticMode) {
-      cellDiagnosticMeta.textContent = 'v6.0.6 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
+      cellDiagnosticMeta.textContent = 'v6.1 GPT-5.6 Sol single-pass mode: no X/Y score crops, no proofreader, no consensus. The review values are the first semantic read.';
       return;
     }
   const previewUrl = debug.normalizedCardDataUrl || '';

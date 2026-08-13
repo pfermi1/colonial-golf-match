@@ -442,12 +442,12 @@ This is a deliberate reset of the score-reading pipeline.
 - No vision prompt, model, OCR, geometry, or score-reading changes.
 
 
-## v6.0.6 Local Pattern Score Proofreader
+## v6.1 GPT-5.6 Sol Single Read
 
-- Reverts to the successful v6.0.1-style single full-card semantic transcription as the authoritative baseline.
-- Adds one conservative proofreader pass that receives the primary transcription instead of producing a competing full transcription.
-- A primary score is changed only when the proofreader reports a specific replacement with confidence >= 0.95.
-- Lower-confidence concerns only mark the existing score for review; they never blank or replace it.
-- The verifier is encouraged to compare similar neighboring handwritten digit shapes, which targets cases such as two adjacent handwritten 5s where one was initially read as 4.
-- Score range remains 1-7.
-- No X/Y score crops and no arithmetic-total forcing.
+Clean vision baseline:
+- Hard-coded model: `gpt-5.6-sol` (no GPT-4.1 fallback).
+- Responses API image detail: `original`.
+- One semantic score transcription pass only.
+- No consensus, second read, proofreader, or automatic score rewriting.
+- Raw first-pass model text is preserved in `debug.semanticRowRead`.
+- Parsed first-pass JSON, exact model, image detail, and pass count are also exposed in debug.
