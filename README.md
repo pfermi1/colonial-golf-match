@@ -450,3 +450,13 @@ This is a deliberate reset of the score-reading pipeline.
 - Explicitly requires every handwritten player row in the main scoring block, preserving top-to-bottom order.
 - Does not use X/Y score crops, grid-derived score locations, or traditional OCR.
 - Totals may not be used to invent or force a score.
+
+## v6.0.3 Consensus Score Verification
+
+- Keeps full normalized-card semantic reading.
+- Runs two genuinely independent vision transcriptions of the entire card.
+- Accepts a score immediately when both passes agree.
+- Collects every player/hole disagreement.
+- Runs a third targeted full-image adjudication only for disputed holes.
+- Does not use totals to force scores.
+- Keeps scores restricted to 1-7 and flags unresolved disagreements for review.
