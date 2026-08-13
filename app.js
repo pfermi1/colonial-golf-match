@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading with GPT-5.6 Sol: one full-card semantic handwriting pass, original image detail, no proofreader or consensus...';
+  status.textContent = 'Reading with GPT-5.6 Sol exactly as v6.1. If any model response cannot be parsed, 6.1.1 will show the exact raw response and stage...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -864,93 +864,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function renderCellDiagnostics(payload) {
   pendingCellDiagnosticPayload = payload;
-
   if (!cellDiagnosticPlayers) return;
   cellDiagnosticPlayers.innerHTML = '';
 
   const debug = payload?.debug || {};
-  const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
-    if (debug.semanticMode) {
-      cellDiagnosticMeta.textContent = 'v6.1 GPT-5.6 Sol single-pass mode: no X/Y score crops, no proofreader, no consensus. The review values are the first semantic read.';
-      return;
+  const failure = debug.parseFailure;
+
+  if (failure) {
+    cellDiagnosticMeta.textContent =
+      `PARSE FAILURE STAGE: ${failure.stage || 'unknown'}. ` +
+      `This is the exact GPT-5.6 response received before parsing failed.`;
+
+    const stage = document.createElement('h3');
+    stage.textContent = `Failed during: ${failure.stage || 'unknown stage'}`;
+
+    const parser = document.createElement('p');
+    parser.className = 'help';
+    parser.textContent = `Parser error: ${failure.parserError || 'unknown'}`;
+
+    const label = document.createElement('p');
+    label.style.fontWeight = '800';
+    label.textContent = 'RAW GPT-5.6 RESPONSE';
+
+    const pre = document.createElement('pre');
+    pre.className = 'raw-diagnostic-response';
+    pre.textContent = failure.rawResponse || '(empty response)';
+
+    cellDiagnosticPlayers.append(stage, parser, label, pre);
+
+    if (continueFromCellDiagnosticButton) {
+      continueFromCellDiagnosticButton.disabled = true;
+      continueFromCellDiagnosticButton.textContent = 'No scores to review';
     }
-  const previewUrl = debug.normalizedCardDataUrl || '';
-
-  if (cellDiagnosticMeta) {
-    const grid = debug.grid || {};
-    const rowCount = Array.isArray(grid.playerRowCenters) ? grid.playerRowCenters.length : 0;
-    const holeCount = Array.isArray(grid.holeCenters) ? grid.holeCenters.length : 0;
-
-    if (!debug.cardBox) {
-      cellDiagnosticMeta.textContent = 'Physical card detection failed.';
-    } else if (rowCount !== 4 || holeCount !== 18) {
-      cellDiagnosticMeta.textContent =
-        `Card normalized, but fixed template geometry is incomplete: ${rowCount} player rows, ${holeCount} hole centers.`;
-    } else {
-      cellDiagnosticMeta.textContent =
-        `Fixed Colonial template: ${rowCount} player rows × ${holeCount} hole columns = ${rowCount * holeCount} crops.`;
-    }
+    return;
   }
 
-  if (previewUrl) {
-    const previewSection = document.createElement('section');
-    previewSection.className = 'cell-diagnostic-player';
-
-    const title = document.createElement('h3');
-    title.textContent = 'Normalized upright card';
-
-    const img = document.createElement('img');
-    img.src = previewUrl;
-    img.alt = 'Normalized upright Colonial scorecard';
-    img.style.width = '100%';
-    img.style.borderRadius = '12px';
-
-    previewSection.append(title, img);
-    cellDiagnosticPlayers.appendChild(previewSection);
+  if (continueFromCellDiagnosticButton) {
+    continueFromCellDiagnosticButton.disabled = false;
+    continueFromCellDiagnosticButton.textContent = 'Review GPT-5.6 scores';
   }
 
-  rows.forEach((row, rowIndex) => {
-    const section = document.createElement('section');
-    section.className = 'cell-diagnostic-player';
-
-    const title = document.createElement('h3');
-    title.textContent = row?.name || `Player ${rowIndex + 1}`;
-
-    const meta = document.createElement('p');
-    meta.className = 'help';
-    meta.textContent =
-      `Fixed row ${rowIndex + 1} · Y ratio ${row?.rowYRatio ?? '?'} · center ${row?.rowCenterY ?? '?'}`;
-
-    const grid = document.createElement('div');
-    grid.className = 'cell-diagnostic-grid';
-
-    const cells = Array.isArray(row?.cells) ? row.cells : [];
-    cells.forEach((cell, i) => {
-      const tile = document.createElement('div');
-      tile.className = 'cell-diagnostic-tile';
-
-      const img = document.createElement('img');
-      img.src = cell?.imageDataUrl || '';
-      img.alt = `${title.textContent} hole ${i + 1}`;
-
-      const label = document.createElement('div');
-      label.className = 'cell-diagnostic-hole';
-      label.textContent = `Hole ${i + 1}`;
-
-      tile.append(img, label);
-      grid.appendChild(tile);
-    });
-
-    section.append(title, meta, grid);
-    cellDiagnosticPlayers.appendChild(section);
-  });
-
-  if (!previewUrl && !rows.length) {
-    const error = document.createElement('p');
-    error.className = 'help';
-    error.textContent = 'No normalized card or derived-grid crops were returned.';
-    cellDiagnosticPlayers.appendChild(error);
+  if (debug.semanticMode) {
+    cellDiagnosticMeta.textContent =
+      'v6.1.1 diagnostic: the v6.1 GPT-5.6 Sol single read parsed successfully. No reading algorithm was changed.';
+    return;
   }
+
+  cellDiagnosticMeta.textContent = 'No semantic diagnostic information was returned.';
 }
 
 backFromCellDiagnosticButton?.addEventListener('click', () => showPanel(uploadPanel));

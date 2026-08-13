@@ -451,3 +451,15 @@ Clean vision baseline:
 - No consensus, second read, proofreader, or automatic score rewriting.
 - Raw first-pass model text is preserved in `debug.semanticRowRead`.
 - Parsed first-pass JSON, exact model, image detail, and pass count are also exposed in debug.
+
+
+## v6.1.1 Raw Response Diagnostic
+
+No score-reading algorithm changes from v6.1.
+
+If one of the GPT-5.6 Sol responses cannot be parsed, the app now returns and displays:
+- the exact pipeline stage that failed (landscape orientation, header orientation, card rectangle, or semantic score read);
+- the exact raw GPT-5.6 response text;
+- the parser error.
+
+This is purely diagnostic. Successful v6.1 reads continue to use one GPT-5.6 Sol semantic score pass with original image detail and no proofreader/consensus.

@@ -50,7 +50,7 @@ Return JSON only:
     const landscapeText = extractOutputText(
       await callVision(apiKey, landscapePrompt, exifDataUrl, 250)
     );
-    const landscapeParsed = parseJson(landscapeText);
+    const landscapeParsed = parseJson(landscapeText, 'landscape orientation');
     const landscapeRotation = normalizeLandscapeRotation(
       landscapeParsed?.rotateClockwiseDegrees
     );
@@ -85,7 +85,7 @@ Return JSON only:
     const headerText = extractOutputText(
       await callVision(apiKey, headerPrompt, landscapeDataUrl, 250)
     );
-    const headerParsed = parseJson(headerText);
+    const headerParsed = parseJson(headerText, 'header orientation');
     const flip180 = Number(headerParsed?.flip180) === 180 ? 180 : 0;
 
     const uprightBuffer = flip180 === 0
@@ -115,7 +115,7 @@ Return JSON only:
     const cardText = extractOutputText(
       await callVision(apiKey, cardPrompt, uprightDataUrl, 350)
     );
-    const cardParsed = parseJson(cardText);
+    const cardParsed = parseJson(cardText, 'card rectangle');
     const cardBox = normalizeBox(cardParsed?.cardBox, 250, 180);
 
     const debug = {
@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1'
+        ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1.1-diagnostic'
       });
     }
 
@@ -206,7 +206,7 @@ Before returning the JSON, silently verify:
     );
 
     const semanticText = extractOutputText(semanticResponse);
-    const parsed = parseJson(semanticText);
+    const parsed = parseJson(semanticText, 'semantic score read');
     const rawPlayers = Array.isArray(parsed?.players) ? parsed.players : [];
 
     const players = rawPlayers.slice(0, 4).map((player, index) => {
@@ -244,15 +244,37 @@ Before returning the JSON, silently verify:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1'
+      ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1.1-diagnostic'
     });
 
   } catch (error) {
-    console.error('v6.1 GPT-5.6 Sol semantic read failure:', error);
+    console.error('v6.1.1 GPT-5.6 Sol diagnostic failure:', error);
+
+    if (error?.name === 'VisionParseError') {
+      return reply(200, {
+        players: [],
+        diagnosticFailure: true,
+        debug: {
+          semanticMode: true,
+          parseFailure: {
+            stage: error.stage || 'unknown stage',
+            rawResponse: error.rawResponse || '',
+            cleanedResponse: error.cleanedResponse || '',
+            parserError: error.initialParseError || error.message || ''
+          },
+          semanticModel: MODEL,
+          semanticImageDetail: 'original',
+          semanticPassCount: 1
+        },
+        warning: `GPT-5.6 response could not be parsed during ${error.stage || 'an unknown stage'}.`,
+        ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1.1-diagnostic'
+      });
+    }
+
     return reply(500, {
       error: error?.message || 'GPT-5.6 Sol semantic scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1'
+      ocrMode: 'gpt-5.6-sol-single-semantic-read-v6.1.1-diagnostic'
     });
   }
 };
@@ -401,19 +423,53 @@ function extractOutputText(r) {
   return parts.join('\n').trim();
 }
 
-function parseJson(text) {
-  const c = String(text || '').trim()
+function parseJson(text, stage = 'unknown stage') {
+  const rawText = String(text || '');
+  const c = rawText.trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
 
   try {
     return JSON.parse(c);
-  } catch (_) {
-    const a = c.indexOf('{');
-    const b = c.lastIndexOf('}');
+  } catch (firstError) {
+    // Extract the first complete top-level JSON object, ignoring any prose or
+    // extra material the model may have added before/after it.
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
 
-    if (a >= 0 && b > a) return JSON.parse(c.slice(a, b + 1));
-    throw new Error('The geometry reader returned an unreadable response.');
+    for (let i = 0; i < c.length; i++) {
+      const ch = c[i];
+
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (ch === '}' && depth > 0) {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          const candidate = c.slice(start, i + 1);
+          try { return JSON.parse(candidate); } catch (_) {}
+          start = -1;
+        }
+      }
+    }
+
+    const error = new Error(`GPT-5.6 returned unreadable JSON during ${stage}.`);
+    error.name = 'VisionParseError';
+    error.stage = stage;
+    error.rawResponse = rawText;
+    error.cleanedResponse = c;
+    error.initialParseError = firstError?.message || String(firstError);
+    throw error;
   }
 }
 
