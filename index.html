@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 6.0.5 · Conservative Score Proofreader</p>
+      <p class="help compact-help">Version 6.0.6 · Local Pattern Score Proofreader</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -76,7 +76,7 @@
     <button id="backFromCellDiagnosticButton" class="secondary" type="button">Back</button>
   </div>
   <p class="help">
-    The first full-card handwriting read is kept as the baseline. A conservative proofreader may correct only specific scores it judges wrong with at least 95% confidence; otherwise the original score is preserved.
+    The first full-card handwriting read is kept as the baseline. A local-pattern proofreader compares repeated handwritten digit shapes within each player row and may correct only specific scores it judges wrong with at least 97% confidence; otherwise the original score is preserved.
   </p>
   <div id="cellDiagnosticMeta" class="help"></div>
   <div id="cellDiagnosticPlayers"></div>
@@ -123,7 +123,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 6.0.5 · Conservative Score Proofreader</footer>
+    <footer class="version-footer">Version 6.0.6 · Local Pattern Score Proofreader</footer>
   
 
 

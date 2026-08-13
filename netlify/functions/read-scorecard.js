@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
+        ocrMode: 'semantic-row-reading-v6.0.6-local-pattern-proofreader'
       });
     }
 
@@ -162,7 +162,7 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: v6.0.5 semantic primary read + conservative proofreader.
+    // Step 4: v6.0.6 semantic primary read + local-pattern proofreader.
     // The first full-card read remains authoritative. The verifier may only
     // change a score when it reports a specific high-confidence correction.
     // It never blanks a valid primary score.
@@ -216,7 +216,7 @@ Before returning the JSON, silently verify that every score came from the same h
     }));
 
     const verifierPrompt = `
-You are a CONSERVATIVE PROOFREADER for a handwritten golf-score transcription.
+You are a LOCAL-PATTERN PROOFREADER for a handwritten golf-score transcription.
 
 The PRIMARY transcription below is the authoritative starting point. Do NOT reread the whole scorecard into a new score list. Do NOT rewrite correct values merely because another digit is plausible.
 
@@ -227,14 +227,16 @@ Inspect the SAME full scorecard image and report ONLY specific holes where you a
 
 Verification rules:
 - Follow the player's handwritten name to that same horizontal handwritten row.
-- Compare the disputed digit visually with nearby handwriting from the SAME player when useful. For example, if adjacent handwritten marks have the same shape, consider whether they represent the same digit.
+- Compare each primary digit against the player's OTHER handwritten digits on the SAME row. Treat repeated handwriting shapes as internal exemplars: if two marks are visually the same shape, strongly prefer the same numeric interpretation.
+- Specifically scan adjacent pairs and repeated shapes across all 18 holes for inconsistent classifications (for example, two matching handwritten 5 shapes read once as 5 and once as 4).
+- Use the clearest instances of each digit on that SAME player row as references for ambiguous instances. Do not use another player's handwriting unless absolutely necessary.
 - Pay special attention to common handwritten confusions such as 3 vs 4, 4 vs 5, 5 vs 6, and similar-looking repeated digits in neighboring holes.
 - Ignore all printed yardages, handicap numbers, par values, tee data, hole labels, OUT/IN totals, and scorer rows.
 - Do NOT use arithmetic totals to force a correction.
 - A replacement score must be an integer 1-7.
-- Report a correction only if confidence is at least 0.95 that the primary value is wrong and the replacement is right.
-- If the primary value might be wrong but you are not at least 0.95 confident, put that hole in suspectHoles instead; do NOT provide a correction.
-- If the primary value is null and you are at least 0.95 confident of the handwritten digit, you may correct it.
+- Report a correction only if confidence is at least 0.97 that the primary value is wrong and the replacement is right.
+- If the primary value might be wrong but you are not at least 0.97 confident, put that hole in suspectHoles instead; do NOT provide a correction.
+- If the primary value is null and you are at least 0.97 confident of the handwritten digit, you may correct it.
 - If there is no high-confidence correction, return an empty corrections array.
 
 Return JSON only:
@@ -273,8 +275,8 @@ Return JSON only:
       const player = players[playerIndex - 1];
       const current = player.scores[hole - 1];
 
-      // v6.0.5 safety rule: valid primary scores survive unless proofreader is >=95% confident.
-      if (confidence >= 0.95 && replacement !== current) {
+      // v6.0.6 safety rule: valid primary scores survive unless proofreader is >=95% confident.
+      if (confidence >= 0.97 && replacement !== current) {
         player.scores[hole - 1] = replacement;
         player.uncertainHoles = player.uncertainHoles.filter(h => h !== hole);
         appliedCorrections.push({
@@ -311,20 +313,20 @@ Return JSON only:
     debug.semanticAppliedCorrections = appliedCorrections;
     debug.semanticRejectedCorrections = rejectedCorrections;
     debug.semanticMode = true;
-    debug.semanticVerificationMode = 'primary-read-plus-conservative-proofreader';
+    debug.semanticVerificationMode = 'primary-read-plus-local-pattern-proofreader';
 
     return reply(200, {
       players,
       debug,
-      ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
+      ocrMode: 'semantic-row-reading-v6.0.6-local-pattern-proofreader'
     });
 
   } catch (error) {
-    console.error('v6.0.5 semantic proofreader failure:', error);
+    console.error('v6.0.6 semantic proofreader failure:', error);
     return reply(500, {
       error: error?.message || 'Semantic scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
+      ocrMode: 'semantic-row-reading-v6.0.6-local-pattern-proofreader'
     });
   }
 };

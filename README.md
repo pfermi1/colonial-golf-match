@@ -442,7 +442,7 @@ This is a deliberate reset of the score-reading pipeline.
 - No vision prompt, model, OCR, geometry, or score-reading changes.
 
 
-## v6.0.5 Conservative Score Proofreader
+## v6.0.6 Local Pattern Score Proofreader
 
 - Reverts to the successful v6.0.1-style single full-card semantic transcription as the authoritative baseline.
 - Adds one conservative proofreader pass that receives the primary transcription instead of producing a competing full transcription.
