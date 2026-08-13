@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 6.1.1 · GPT-5.6 Raw Response Diagnostic</p>
+      <p class="help compact-help">Version 6.1.2 · GPT-5.6 Direct Full-Image Read</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -71,12 +71,12 @@
   <div class="review-head">
     <div>
       <p class="eyebrow">DEBUG</p>
-      <h2>GPT-5.6 raw response diagnostic</h2>
+      <h2>GPT-5.6 direct full-image read</h2>
     </div>
     <button id="backFromCellDiagnosticButton" class="secondary" type="button">Back</button>
   </div>
   <p class="help">
-    The score reader is unchanged from 6.1. If parsing fails, this screen shows exactly which GPT-5.6 call failed and the raw text returned by the model.
+    The original full photo is sent directly to GPT-5.6 Sol. There are no rotation, geometry, card-rectangle, normalization, crop, or proofreader calls before the score read.
   </p>
   <div id="cellDiagnosticMeta" class="help"></div>
   <div id="cellDiagnosticPlayers"></div>
@@ -123,7 +123,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 6.1.1 · GPT-5.6 Raw Response Diagnostic</footer>
+    <footer class="version-footer">Version 6.1.2 · GPT-5.6 Direct Full-Image Read</footer>
   
 
 

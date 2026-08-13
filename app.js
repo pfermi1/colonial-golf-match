@@ -165,7 +165,7 @@ async function prepareSelectedPhoto(input) {
   if (!file) return;
   status.textContent = 'Preparing photo...';
   try {
-    imageDataUrl = await resizeImage(file, 2400, 0.90);
+    imageDataUrl = await readFileAsDataUrl(file);
     preview.src = imageDataUrl;
     preview.classList.remove('hidden');
     readButton.disabled = false;
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading with GPT-5.6 Sol exactly as v6.1. If any model response cannot be parsed, 6.1.1 will show the exact raw response and stage...';
+  status.textContent = 'Sending the original full photo directly to GPT-5.6 Sol. No rotation, geometry, card rectangle, normalization, crops, or proofreader...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -781,6 +781,15 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function resizeImage(file, maxWidth, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -906,7 +915,7 @@ function renderCellDiagnostics(payload) {
 
   if (debug.semanticMode) {
     cellDiagnosticMeta.textContent =
-      'v6.1.1 diagnostic: the v6.1 GPT-5.6 Sol single read parsed successfully. No reading algorithm was changed.';
+      'v6.1.2 diagnostic: the v6.1 GPT-5.6 Sol single read parsed successfully. No reading algorithm was changed.';
     return;
   }
 

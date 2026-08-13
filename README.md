@@ -463,3 +463,13 @@ If one of the GPT-5.6 Sol responses cannot be parsed, the app now returns and di
 - the parser error.
 
 This is purely diagnostic. Successful v6.1 reads continue to use one GPT-5.6 Sol semantic score pass with original image detail and no proofreader/consensus.
+
+
+## v6.1.2 Direct Full-Image GPT-5.6 Read
+
+- Sends the user's selected image directly to gpt-5.6-sol with image detail `original`.
+- Zero preprocessing vision calls.
+- No rotation call, card rectangle call, normalization, X/Y geometry, score crops, proofreader, consensus or triple-check.
+- One semantic score-reading call only.
+- The model is instructed to mentally orient and locate the scorecard within the full photograph.
+- Parse failures still expose the raw model response for diagnosis.
