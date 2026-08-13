@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'semantic-row-reading-v6.0.3-consensus'
+        ocrMode: 'semantic-row-reading-v6.0.4-consensus'
       });
     }
 
@@ -162,7 +162,7 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: v6.0.3 independent semantic reads + disagreement adjudication.
+    // Step 4: v6.0.4 independent semantic reads + disagreement adjudication.
     // No X/Y score geometry. No score-cell crops. No traditional OCR.
     // Pass 1 and Pass 2 are separate API calls on the SAME normalized full card.
     const baseReadRules = `
@@ -306,15 +306,15 @@ Return JSON only:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'semantic-row-reading-v6.0.3-consensus'
+      ocrMode: 'semantic-row-reading-v6.0.4-consensus'
     });
 
   } catch (error) {
-    console.error('v6.0.3 semantic consensus failure:', error);
+    console.error('v6.0.4 semantic consensus failure:', error);
     return reply(500, {
       error: error?.message || 'Semantic scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'semantic-row-reading-v6.0.3-consensus'
+      ocrMode: 'semantic-row-reading-v6.0.4-consensus'
     });
   }
 };
@@ -503,15 +503,55 @@ function parseJson(text) {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
 
+  // Fast path for perfectly clean JSON.
   try {
     return JSON.parse(c);
-  } catch (_) {
-    const a = c.indexOf('{');
-    const b = c.lastIndexOf('}');
+  } catch (_) {}
 
-    if (a >= 0 && b > a) return JSON.parse(c.slice(a, b + 1));
-    throw new Error('The geometry reader returned an unreadable response.');
+  // Models can occasionally append commentary or even a second JSON object.
+  // Extract only the FIRST complete top-level object using balanced braces,
+  // while respecting braces that appear inside JSON strings.
+  const start = c.indexOf('{');
+  if (start < 0) throw new Error('Vision returned no JSON object.');
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < c.length; i++) {
+    const ch = c[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '{') depth++;
+    if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        const candidate = c.slice(start, i + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch (error) {
+          throw new Error(`Vision returned malformed JSON: ${error.message}`);
+        }
+      }
+    }
   }
+
+  throw new Error('Vision returned an incomplete JSON object.');
 }
 
 function clamp(v, min, max) {

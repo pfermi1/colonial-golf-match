@@ -451,7 +451,7 @@ This is a deliberate reset of the score-reading pipeline.
 - Does not use X/Y score crops, grid-derived score locations, or traditional OCR.
 - Totals may not be used to invent or force a score.
 
-## v6.0.3 Consensus Score Verification
+## v6.0.4 Robust JSON Parser
 
 - Keeps full normalized-card semantic reading.
 - Runs two genuinely independent vision transcriptions of the entire card.
@@ -460,3 +460,14 @@ This is a deliberate reset of the score-reading pipeline.
 - Runs a third targeted full-image adjudication only for disputed holes.
 - Does not use totals to force scores.
 - Keeps scores restricted to 1-7 and flags unresolved disagreements for review.
+
+
+## v6.0.4 Robust JSON Parser
+
+Parser-only hotfix on top of v6.0.3 consensus verification.
+
+- Keeps the two independent semantic full-card reads.
+- Keeps targeted third-pass adjudication for disagreements.
+- Does not change the score-reading prompts, model, normalization, or review UI.
+- Replaces the fragile `first {` / `last }` fallback with balanced-brace extraction of the first complete JSON object.
+- Safely ignores trailing prose, markdown, or a second JSON object after a valid response.
