@@ -440,3 +440,13 @@ This is a deliberate reset of the score-reading pipeline.
 - Fixes the diagnostic button variable names.
 - Review semantic scores now goes directly to the normal review screen using the already-returned v6.0 semantic payload.
 - No vision prompt, model, OCR, geometry, or score-reading changes.
+
+
+## v6.0.2 Semantic Read + Verification
+
+- Preserves the v6.0.1 full-card semantic handwriting architecture.
+- Adds a mandatory second visual verification pass over every returned score.
+- Restricts accepted player scores to 1-7.
+- Explicitly requires every handwritten player row in the main scoring block, preserving top-to-bottom order.
+- Does not use X/Y score crops, grid-derived score locations, or traditional OCR.
+- Totals may not be used to invent or force a score.

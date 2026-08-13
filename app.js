@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Locating the physical card and first player name, then applying the v6.0.2 downward Y calibration while keeping the v3.2 X positions unchanged...';
+  status.textContent = 'Reading every handwritten player row, then visually verifying every score a second time...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -871,7 +871,7 @@ function renderCellDiagnostics(payload) {
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
     if (debug.semanticMode) {
-      cellDiagnosticMeta.textContent = 'v6.0.1 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
+      cellDiagnosticMeta.textContent = 'v6.0.2 semantic mode: full-card reading with a mandatory second visual verification pass. No X/Y crops are generated.';
       return;
     }
   const previewUrl = debug.normalizedCardDataUrl || '';

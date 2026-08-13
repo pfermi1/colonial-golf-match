@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'fixed-template-geometry-v5.9.2'
+        ocrMode: 'semantic-row-reading-v6.0.2-verified'
       });
     }
 
@@ -167,35 +167,45 @@ Return JSON only:
     // Give the normalized full card to the vision model and ask it to reason
     // from each handwritten player name across that SAME handwritten row.
     const semanticPrompt = `
-You are reading ONE golf scorecard image.
+Read this golf scorecard semantically from the FULL normalized upright card image.
 
-IMPORTANT:
-- Read HANDWRITING, not the printed course numbers.
-- Do NOT use printed yardages, handicaps, pars, tee ratings, totals, or other printed numbers as player scores.
-- Find the MAIN handwritten player block above the printed PAR row.
-- There are up to four handwritten player names, one per row.
-- For each player, start at that handwritten name and visually follow THE SAME HORIZONTAL HANDWRITTEN ROW to the right.
-- Read holes 1 through 9, skip the printed OUT/total column, then continue on that SAME row for holes 10 through 18.
-- A normal golf score is generally a single handwritten digit. If a mark is genuinely unreadable, use null rather than substituting nearby printed text.
-- Preserve the player order exactly as it appears top-to-bottom on the card.
-- Do not invent players from printed labels or the scorer/attest area.
+TASK:
+- Locate EVERY handwritten player-name row in the main player scoring block above the printed PAR row.
+- For each handwritten player, read that SAME handwritten row across holes 1 through 18, left-to-right.
+- Read holes 1-9, skip the printed OUT/total column, then continue holes 10-18 on the SAME row.
+- Return all handwritten player rows you can see, preserving their top-to-bottom order.
+
+STRICT READING RULES:
+- Read HANDWRITING only for player names and player scores.
+- Ignore ALL printed yardages, tee information, handicaps, pars, hole numbers, ratings, totals, scorer/attest text, and other printed numbers.
+- Each player score must be a SINGLE integer from 1 through 7, or null only when the handwritten digit truly cannot be read.
+- Never copy a nearby printed number into a player's score.
+- Never move vertically into another player's row.
+- Never invent or alter a score merely to make a front-nine, back-nine, or 18-hole total work.
+- Do not stop after three players if another handwritten player row is present.
+
+MANDATORY TWO-PASS VISUAL CHECK:
+PASS 1: Read every handwritten player name and all 18 handwritten scores.
+PASS 2: BEFORE returning JSON, visually inspect the ORIGINAL full-card image again and re-check EVERY score against the handwriting in that player's row. Pay special attention to ambiguous handwritten 3, 4, 5, and 6 digits. Correct any first-pass misread only when the handwriting itself supports the correction.
+
+FINAL VALIDATION:
+1. Every detected handwritten player has exactly 18 score entries.
+2. Every non-null score is an integer from 1 through 7.
+3. Every score came from the same horizontal handwritten row as that player's name.
+4. No printed course number was used as a player score.
+5. All handwritten player rows in the main scoring block were included.
+6. uncertainHoles contains only holes that remain genuinely visually ambiguous after PASS 2.
 
 Return JSON only, exactly this shape:
 {
   "players": [
     {
       "name": "handwritten player name",
-      "scores": [18 values, each an integer 1-12 or null],
-      "uncertainHoles": [hole numbers that were unclear]
+      "scores": [18 values, each an integer 1-7 or null],
+      "uncertainHoles": [hole numbers still unclear after the second visual check]
     }
   ]
 }
-
-Before returning the JSON, silently verify:
-1. every score came from the same handwritten row as that player's name;
-2. no printed three-digit yardage or printed handicap/par number was used;
-3. each player has exactly 18 score entries;
-4. uncertain marks are null.
 `;
 
     const semanticResponse = await callVision(
@@ -210,14 +220,14 @@ Before returning the JSON, silently verify:
     const parsed = parseJson(semanticText);
     const rawPlayers = Array.isArray(parsed?.players) ? parsed.players : [];
 
-    const players = rawPlayers.slice(0, 4).map((player, index) => {
+    const players = rawPlayers.slice(0, 5).map((player, index) => {
       const scores = Array.isArray(player?.scores) ? player.scores.slice(0, 18) : [];
       while (scores.length < 18) scores.push(null);
 
       const cleanedScores = scores.map(value => {
         if (value === null || value === undefined || value === '') return null;
         const n = Number(value);
-        return Number.isInteger(n) && n >= 1 && n <= 12 ? n : null;
+        return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
       });
 
       const modelUncertain = Array.isArray(player?.uncertainHoles)
@@ -241,15 +251,15 @@ Before returning the JSON, silently verify:
     return reply(200, {
       players,
       debug,
-      ocrMode: 'semantic-row-reading-v6.0'
+      ocrMode: 'semantic-row-reading-v6.0.2-verified'
     });
 
   } catch (error) {
-    console.error('v5.9.2 fixed-template geometry failure:', error);
+    console.error('v6.0.2 semantic verification failure:', error);
     return reply(500, {
-      error: error?.message || 'Grid-derived geometry diagnostic failed.',
+      error: error?.message || 'Semantic scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'fixed-template-geometry-v5.9.2'
+      ocrMode: 'semantic-row-reading-v6.0.2-verified'
     });
   }
 };
