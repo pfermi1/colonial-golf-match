@@ -117,12 +117,12 @@ let activeBallCardId = null;
 let savedCards = loadCards();
 
 renderSavedCards();
-showPanel(roundPanel); // v6.0.4 startup
+showPanel(roundPanel); // v6.0.2 startup
 
 addCardButton.addEventListener('click', () => {
   resetUpload();
   showPanel(uploadPanel);
-  // v6.0.4 hotfix: invoke the native picker synchronously from the user gesture.
+  // v6.0.2 hotfix: invoke the native picker synchronously from the user gesture.
   // This avoids relying on a label->hidden-input handoff on iOS.
   libraryInput.value = '';
   libraryInput.click();
@@ -136,7 +136,7 @@ newRoundButton.addEventListener('click', () => {
     savedCards = [];
     saveCards();
     renderSavedCards();
-showPanel(roundPanel); // v6.0.4 startup
+showPanel(roundPanel); // v6.0.2 startup
   }
 });
 backToCardsButton.addEventListener('click', () => showPanel(roundPanel));
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Reading every handwritten player row, then visually verifying every score a second time...';
+  status.textContent = 'Reading the full handwritten player rows, then running a conservative score proofreader that preserves the primary read unless a correction is at least 95% confident...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -231,7 +231,7 @@ confirmButton.addEventListener('click', () => {
       confirmButton.textContent = 'Confirm card';
       resetUpload({ keepEditing: true });
       renderSavedCards();
-showPanel(roundPanel); // v6.0.4 startup
+showPanel(roundPanel); // v6.0.2 startup
       renderBallCard(updated);
       return;
     }
@@ -251,7 +251,7 @@ showPanel(roundPanel); // v6.0.4 startup
   currentData = null;
   resetUpload();
   renderSavedCards();
-showPanel(roundPanel); // v6.0.4 startup
+showPanel(roundPanel); // v6.0.2 startup
   showPanel(roundPanel);
 });
 
@@ -415,7 +415,7 @@ function renderSavedCards() {
         savedCards = savedCards.filter(saved => saved.id !== card.id);
         saveCards();
         renderSavedCards();
-showPanel(roundPanel); // v6.0.4 startup
+showPanel(roundPanel); // v6.0.2 startup
       }
     });
     savedCardsEl.appendChild(item);
@@ -871,7 +871,7 @@ function renderCellDiagnostics(payload) {
   const debug = payload?.debug || {};
   const rows = Array.isArray(debug.templateRows) ? debug.templateRows : [];
     if (debug.semanticMode) {
-      cellDiagnosticMeta.textContent = 'v6.0.4 semantic mode: two independent full-card reads plus targeted rereads for disagreements. No X/Y score crops are generated.';
+      cellDiagnosticMeta.textContent = 'v6.0.5 semantic mode: no X/Y crops are generated. Review the returned player scores on the normal review screen.';
       return;
     }
   const previewUrl = debug.normalizedCardDataUrl || '';

@@ -54,7 +54,7 @@
           <span>Select a scorecard already saved in Photos or Files.</span>
         </label>
       </div>
-      <p class="help compact-help">Version 6.0.4 · Robust JSON Parser</p>
+      <p class="help compact-help">Version 6.0.5 · Conservative Score Proofreader</p>
       <input id="cameraFile" class="hidden-file-input" type="file" accept="image/*" capture="environment">
       <input id="libraryFile" class="hidden-file-input" type="file" accept="image/*">
 
@@ -71,12 +71,12 @@
   <div class="review-head">
     <div>
       <p class="eyebrow">DEBUG</p>
-      <h2>Semantic handwriting read</h2>
+      <h2>Semantic handwriting read + proofreader</h2>
     </div>
     <button id="backFromCellDiagnosticButton" class="secondary" type="button">Back</button>
   </div>
   <p class="help">
-    Semantic mode uses two independent full-card reads. Any hole where they disagree is reread in a targeted third verification pass before review.
+    The first full-card handwriting read is kept as the baseline. A conservative proofreader may correct only specific scores it judges wrong with at least 95% confidence; otherwise the original score is preserved.
   </p>
   <div id="cellDiagnosticMeta" class="help"></div>
   <div id="cellDiagnosticPlayers"></div>
@@ -123,7 +123,7 @@
       </div>
       <div id="ballCardContent"></div>
     </section>
-    <footer class="version-footer">Version 6.0.4 · Robust JSON Parser</footer>
+    <footer class="version-footer">Version 6.0.5 · Conservative Score Proofreader</footer>
   
 
 

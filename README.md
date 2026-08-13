@@ -442,32 +442,12 @@ This is a deliberate reset of the score-reading pipeline.
 - No vision prompt, model, OCR, geometry, or score-reading changes.
 
 
-## v6.0.2 Semantic Read + Verification
+## v6.0.5 Conservative Score Proofreader
 
-- Preserves the v6.0.1 full-card semantic handwriting architecture.
-- Adds a mandatory second visual verification pass over every returned score.
-- Restricts accepted player scores to 1-7.
-- Explicitly requires every handwritten player row in the main scoring block, preserving top-to-bottom order.
-- Does not use X/Y score crops, grid-derived score locations, or traditional OCR.
-- Totals may not be used to invent or force a score.
-
-## v6.0.4 Robust JSON Parser
-
-- Keeps full normalized-card semantic reading.
-- Runs two genuinely independent vision transcriptions of the entire card.
-- Accepts a score immediately when both passes agree.
-- Collects every player/hole disagreement.
-- Runs a third targeted full-image adjudication only for disputed holes.
-- Does not use totals to force scores.
-- Keeps scores restricted to 1-7 and flags unresolved disagreements for review.
-
-
-## v6.0.4 Robust JSON Parser
-
-Parser-only hotfix on top of v6.0.3 consensus verification.
-
-- Keeps the two independent semantic full-card reads.
-- Keeps targeted third-pass adjudication for disagreements.
-- Does not change the score-reading prompts, model, normalization, or review UI.
-- Replaces the fragile `first {` / `last }` fallback with balanced-brace extraction of the first complete JSON object.
-- Safely ignores trailing prose, markdown, or a second JSON object after a valid response.
+- Reverts to the successful v6.0.1-style single full-card semantic transcription as the authoritative baseline.
+- Adds one conservative proofreader pass that receives the primary transcription instead of producing a competing full transcription.
+- A primary score is changed only when the proofreader reports a specific replacement with confidence >= 0.95.
+- Lower-confidence concerns only mark the existing score for review; they never blank or replace it.
+- The verifier is encouraged to compare similar neighboring handwritten digit shapes, which targets cases such as two adjacent handwritten 5s where one was initially read as 4.
+- Score range remains 1-7.
+- No X/Y score crops and no arithmetic-total forcing.

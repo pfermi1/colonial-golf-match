@@ -136,7 +136,7 @@ Return JSON only:
         players: [],
         debug,
         warning: 'Could not locate the physical card rectangle.',
-        ocrMode: 'semantic-row-reading-v6.0.4-consensus'
+        ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
       });
     }
 
@@ -162,159 +162,169 @@ Return JSON only:
       `data:image/jpeg;base64,${cardBuffer.toString('base64')}`;
     debug.normalizedCardDataUrl = cardDataUrl;
 
-    // Step 4: v6.0.4 independent semantic reads + disagreement adjudication.
-    // No X/Y score geometry. No score-cell crops. No traditional OCR.
-    // Pass 1 and Pass 2 are separate API calls on the SAME normalized full card.
-    const baseReadRules = `
-Read this golf scorecard semantically from the FULL normalized upright card image.
+    // Step 4: v6.0.5 semantic primary read + conservative proofreader.
+    // The first full-card read remains authoritative. The verifier may only
+    // change a score when it reports a specific high-confidence correction.
+    // It never blanks a valid primary score.
+    const semanticPrompt = `
+You are reading ONE golf scorecard image.
 
-TASK:
-- Locate EVERY handwritten player-name row in the main player scoring block above the printed PAR row.
-- For each handwritten player, read that SAME handwritten row across holes 1 through 18, left-to-right.
-- Read holes 1-9, skip the printed OUT/total column, then continue holes 10-18 on the SAME row.
-- Return all handwritten player rows you can see, preserving their top-to-bottom order.
+IMPORTANT:
+- Read HANDWRITING, not printed course numbers.
+- Do NOT use printed yardages, handicaps, pars, tee ratings, totals, or other printed numbers as player scores.
+- Find the MAIN handwritten player block above the printed PAR row.
+- There are up to five handwritten player names, one per row.
+- For each player, start at that handwritten name and visually follow THE SAME HORIZONTAL HANDWRITTEN ROW to the right.
+- Read holes 1 through 9, skip the printed OUT/total column, then continue on that SAME row for holes 10 through 18.
+- Each golf score must be a single handwritten integer from 1 through 7.
+- If a mark is genuinely unreadable, use null rather than substituting nearby printed text.
+- Preserve player order exactly as it appears top-to-bottom on the card.
+- Do not invent players from printed labels or the scorer/attest area.
 
-STRICT RULES:
-- Read HANDWRITING only for player names and player scores.
-- Ignore ALL printed yardages, tee information, handicaps, pars, hole numbers, ratings, totals, scorer/attest text, and other printed numbers.
-- Each score must be a SINGLE integer from 1 through 7, or null only when genuinely unreadable.
-- Never copy a nearby printed number into a player's score.
-- Never move vertically into another player's row.
-- Never change a score merely to make a front-nine, back-nine, or 18-hole total work.
-- Include every handwritten player row in the main scoring block.
-
-Return JSON only:
+Return JSON only, exactly this shape:
 {
-  "players":[
+  "players": [
     {
-      "name":"handwritten player name",
-      "scores":[18 values, each integer 1-7 or null],
-      "uncertainHoles":[hole numbers that are genuinely unclear]
+      "name": "handwritten player name",
+      "scores": [18 values, each an integer 1-7 or null],
+      "uncertainHoles": [hole numbers that were genuinely unclear]
     }
   ]
 }
+
+Before returning the JSON, silently verify that every score came from the same handwritten row as that player's name and that no printed number was used.
 `;
 
-    const pass1Prompt = `${baseReadRules}\nPASS 1: Perform a careful first transcription. Focus on following each handwritten name horizontally across its own row.`;
-    const pass2Prompt = `${baseReadRules}\nPASS 2: Perform a completely independent second transcription from the image. Do not assume an earlier reading. Pay special attention to handwritten 3/4/5/6 shapes and to the transition from Hole 9 to Hole 10.`;
+    const semanticResponse = await callVision(
+      apiKey,
+      semanticPrompt,
+      cardDataUrl,
+      1800
+    );
 
-    const pass1Text = extractOutputText(await callVision(apiKey, pass1Prompt, cardDataUrl, 1800));
-    const pass2Text = extractOutputText(await callVision(apiKey, pass2Prompt, cardDataUrl, 1800));
+    const semanticText = extractOutputText(semanticResponse);
+    const primaryParsed = parseJson(semanticText);
+    const players = cleanPrimaryPlayers(primaryParsed?.players);
 
-    const pass1Players = cleanPlayers(parseJson(pass1Text)?.players);
-    const pass2Players = cleanPlayers(parseJson(pass2Text)?.players);
-
-    // Align independent reads primarily by row order. Names are useful labels, not geometry anchors.
-    const maxPlayers = Math.max(pass1Players.length, pass2Players.length);
-    const merged = [];
-    const disagreements = [];
-
-    for (let p = 0; p < maxPlayers; p++) {
-      const a = pass1Players[p] || emptyPlayer(p);
-      const b = pass2Players[p] || emptyPlayer(p);
-      const name = chooseName(a.name, b.name, p);
-      const scores = [];
-      const uncertain = new Set([...(a.uncertainHoles || []), ...(b.uncertainHoles || [])]);
-
-      for (let h = 0; h < 18; h++) {
-        const av = a.scores[h] ?? null;
-        const bv = b.scores[h] ?? null;
-        if (av !== null && av === bv) {
-          scores.push(av);
-          uncertain.delete(h + 1);
-        } else if (av === null && bv !== null) {
-          scores.push(bv);
-          uncertain.add(h + 1);
-          disagreements.push({ playerIndex:p, name, hole:h+1, pass1:av, pass2:bv });
-        } else if (bv === null && av !== null) {
-          scores.push(av);
-          uncertain.add(h + 1);
-          disagreements.push({ playerIndex:p, name, hole:h+1, pass1:av, pass2:bv });
-        } else {
-          scores.push(null);
-          uncertain.add(h + 1);
-          disagreements.push({ playerIndex:p, name, hole:h+1, pass1:av, pass2:bv });
-        }
-      }
-
-      merged.push({ name, scores, uncertainHoles:[...uncertain].sort((x,y)=>x-y) });
-    }
-
-    // Pass 3 only happens when the two independent reads disagree.
-    // It rereads JUST those disputed player/hole positions from the same full card.
-    if (disagreements.length) {
-      const disagreementList = disagreements.map(d =>
-        `row ${d.playerIndex + 1} (${d.name}), hole ${d.hole}: pass1=${d.pass1 ?? 'null'}, pass2=${d.pass2 ?? 'null'}`
-      ).join('\n');
-
-      const adjudicationPrompt = `
-You are adjudicating DISAGREEMENTS between two independent reads of this SAME full golf scorecard image.
-
-Do not reread or rewrite scores that are not listed below.
-For each listed disagreement, find the handwritten player row and inspect ONLY that hole's handwritten digit in the full image.
-Ignore printed yardage, handicap, par, hole numbers, and totals.
-Choose the digit supported by the handwriting itself. Score must be 1-7 or null if truly unreadable.
-Do not use arithmetic totals to force an answer.
-
-DISAGREEMENTS:
-${disagreementList}
-
-Return JSON only:
-{
-  "resolutions":[
-    {"playerIndex":1,"name":"player name","hole":1,"score":5,"confident":true}
-  ]
-}
-`;
-
-      const pass3Text = extractOutputText(await callVision(apiKey, adjudicationPrompt, cardDataUrl, 1200));
-      debug.semanticAdjudication = pass3Text;
-      const resolutions = Array.isArray(parseJson(pass3Text)?.resolutions) ? parseJson(pass3Text).resolutions : [];
-
-      for (const r of resolutions) {
-        const playerIndex1 = Number(r?.playerIndex);
-        const hole = Number(r?.hole);
-        const score = cleanScore(r?.score);
-        if (!Number.isInteger(playerIndex1) || playerIndex1 < 1 || playerIndex1 > merged.length) continue;
-        if (!Number.isInteger(hole) || hole < 1 || hole > 18) continue;
-        if (score === null) continue;
-
-        const target = merged[playerIndex1 - 1];
-        target.scores[hole - 1] = score;
-        if (r?.confident === true) {
-          target.uncertainHoles = target.uncertainHoles.filter(h => h !== hole);
-        }
-      }
-    }
-
-    // Preserve nulls/uncertain markers for any unresolved disagreement.
-    const players = merged.slice(0, 5).map((player, index) => ({
-      name: String(player.name || `Player ${index + 1}`).trim(),
-      scores: player.scores.slice(0, 18),
-      uncertainHoles: [...new Set([
-        ...(player.uncertainHoles || []),
-        ...player.scores.map((v, i) => v === null ? i + 1 : null).filter(Boolean)
-      ])].sort((a,b)=>a-b)
+    // Pass 2 is NOT another transcription. It receives the primary answer and
+    // acts only as a conservative proofreader. It should report a correction
+    // only when the handwriting clearly contradicts the primary score.
+    const primaryForVerifier = players.map((p, i) => ({
+      playerIndex: i + 1,
+      name: p.name,
+      scores: p.scores
     }));
 
-    debug.semanticPass1 = pass1Text;
-    debug.semanticPass2 = pass2Text;
-    debug.semanticDisagreements = disagreements;
+    const verifierPrompt = `
+You are a CONSERVATIVE PROOFREADER for a handwritten golf-score transcription.
+
+The PRIMARY transcription below is the authoritative starting point. Do NOT reread the whole scorecard into a new score list. Do NOT rewrite correct values merely because another digit is plausible.
+
+PRIMARY TRANSCRIPTION:
+${JSON.stringify(primaryForVerifier)}
+
+Inspect the SAME full scorecard image and report ONLY specific holes where you are HIGHLY CONFIDENT the primary score is wrong.
+
+Verification rules:
+- Follow the player's handwritten name to that same horizontal handwritten row.
+- Compare the disputed digit visually with nearby handwriting from the SAME player when useful. For example, if adjacent handwritten marks have the same shape, consider whether they represent the same digit.
+- Pay special attention to common handwritten confusions such as 3 vs 4, 4 vs 5, 5 vs 6, and similar-looking repeated digits in neighboring holes.
+- Ignore all printed yardages, handicap numbers, par values, tee data, hole labels, OUT/IN totals, and scorer rows.
+- Do NOT use arithmetic totals to force a correction.
+- A replacement score must be an integer 1-7.
+- Report a correction only if confidence is at least 0.95 that the primary value is wrong and the replacement is right.
+- If the primary value might be wrong but you are not at least 0.95 confident, put that hole in suspectHoles instead; do NOT provide a correction.
+- If the primary value is null and you are at least 0.95 confident of the handwritten digit, you may correct it.
+- If there is no high-confidence correction, return an empty corrections array.
+
+Return JSON only:
+{
+  "corrections": [
+    {"playerIndex":1,"hole":8,"from":4,"to":5,"confidence":0.98,"reason":"same handwritten shape as neighboring 5"}
+  ],
+  "suspectHoles": [
+    {"playerIndex":2,"hole":6}
+  ]
+}
+`;
+
+    const verifierText = extractOutputText(
+      await callVision(apiKey, verifierPrompt, cardDataUrl, 1400)
+    );
+    const verifierParsed = parseJson(verifierText);
+    const corrections = Array.isArray(verifierParsed?.corrections) ? verifierParsed.corrections : [];
+    const suspectHoles = Array.isArray(verifierParsed?.suspectHoles) ? verifierParsed.suspectHoles : [];
+
+    const appliedCorrections = [];
+    const rejectedCorrections = [];
+
+    for (const correction of corrections) {
+      const playerIndex = Number(correction?.playerIndex);
+      const hole = Number(correction?.hole);
+      const replacement = cleanScore(correction?.to);
+      const confidence = Number(correction?.confidence);
+
+      if (!Number.isInteger(playerIndex) || playerIndex < 1 || playerIndex > players.length ||
+          !Number.isInteger(hole) || hole < 1 || hole > 18 ||
+          replacement === null || !Number.isFinite(confidence)) {
+        continue;
+      }
+
+      const player = players[playerIndex - 1];
+      const current = player.scores[hole - 1];
+
+      // v6.0.5 safety rule: valid primary scores survive unless proofreader is >=95% confident.
+      if (confidence >= 0.95 && replacement !== current) {
+        player.scores[hole - 1] = replacement;
+        player.uncertainHoles = player.uncertainHoles.filter(h => h !== hole);
+        appliedCorrections.push({
+          playerIndex, hole, from: current, to: replacement, confidence,
+          reason: String(correction?.reason || '')
+        });
+      } else if (replacement !== current) {
+        player.uncertainHoles = [...new Set([...player.uncertainHoles, hole])].sort((a,b)=>a-b);
+        rejectedCorrections.push({ playerIndex, hole, from: current, to: replacement, confidence });
+      }
+    }
+
+    // A verifier suspicion never deletes or replaces the primary score. It only
+    // adds the yellow review marker so the user can inspect it if desired.
+    for (const item of suspectHoles) {
+      const playerIndex = Number(item?.playerIndex);
+      const hole = Number(item?.hole);
+      if (!Number.isInteger(playerIndex) || playerIndex < 1 || playerIndex > players.length) continue;
+      if (!Number.isInteger(hole) || hole < 1 || hole > 18) continue;
+      const player = players[playerIndex - 1];
+      player.uncertainHoles = [...new Set([...player.uncertainHoles, hole])].sort((a,b)=>a-b);
+    }
+
+    // Never blank a valid primary score because of verifier disagreement.
+    for (const player of players) {
+      player.uncertainHoles = [...new Set([
+        ...(player.uncertainHoles || []),
+        ...player.scores.map((v, i) => v === null ? i + 1 : null).filter(Boolean)
+      ])].sort((a,b)=>a-b);
+    }
+
+    debug.semanticRowRead = semanticText;
+    debug.semanticProofreader = verifierText;
+    debug.semanticAppliedCorrections = appliedCorrections;
+    debug.semanticRejectedCorrections = rejectedCorrections;
     debug.semanticMode = true;
-    debug.semanticVerificationMode = 'two-independent-reads-plus-targeted-adjudication';
+    debug.semanticVerificationMode = 'primary-read-plus-conservative-proofreader';
 
     return reply(200, {
       players,
       debug,
-      ocrMode: 'semantic-row-reading-v6.0.4-consensus'
+      ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
     });
 
   } catch (error) {
-    console.error('v6.0.4 semantic consensus failure:', error);
+    console.error('v6.0.5 semantic proofreader failure:', error);
     return reply(500, {
       error: error?.message || 'Semantic scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'semantic-row-reading-v6.0.4-consensus'
+      ocrMode: 'semantic-row-reading-v6.0.5-proofreader'
     });
   }
 };
@@ -325,33 +335,23 @@ function cleanScore(value) {
   return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
 }
 
-function cleanPlayers(src) {
+function cleanPrimaryPlayers(src) {
   if (!Array.isArray(src)) return [];
   return src.slice(0, 5).map((player, index) => {
     const scores = Array.isArray(player?.scores) ? player.scores.slice(0, 18).map(cleanScore) : [];
     while (scores.length < 18) scores.push(null);
-    const uncertainHoles = Array.isArray(player?.uncertainHoles)
+
+    const modelUncertain = Array.isArray(player?.uncertainHoles)
       ? player.uncertainHoles.map(Number).filter(h => Number.isInteger(h) && h >= 1 && h <= 18)
       : [];
+    const nullHoles = scores.map((v, i) => v === null ? i + 1 : null).filter(Boolean);
+
     return {
       name: String(player?.name || `Player ${index + 1}`).trim(),
       scores,
-      uncertainHoles
+      uncertainHoles: [...new Set([...modelUncertain, ...nullHoles])].sort((a,b)=>a-b)
     };
   });
-}
-
-function emptyPlayer(index) {
-  return { name:`Player ${index + 1}`, scores:Array(18).fill(null), uncertainHoles:Array.from({length:18},(_,i)=>i+1) };
-}
-
-function chooseName(a, b, index) {
-  const an = String(a || '').trim();
-  const bn = String(b || '').trim();
-  if (an && bn && an.toLowerCase() === bn.toLowerCase()) return an;
-  if (an && !/^Player \d+$/i.test(an)) return an;
-  if (bn && !/^Player \d+$/i.test(bn)) return bn;
-  return an || bn || `Player ${index + 1}`;
 }
 
 function normalizeLandscapeRotation(v) {
@@ -503,14 +503,10 @@ function parseJson(text) {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
 
-  // Fast path for perfectly clean JSON.
   try {
     return JSON.parse(c);
   } catch (_) {}
 
-  // Models can occasionally append commentary or even a second JSON object.
-  // Extract only the FIRST complete top-level object using balanced braces,
-  // while respecting braces that appear inside JSON strings.
   const start = c.indexOf('{');
   if (start < 0) throw new Error('Vision returned no JSON object.');
 
