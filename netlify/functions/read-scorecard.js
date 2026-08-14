@@ -95,10 +95,10 @@ Before returning, silently confirm that every player has exactly 18 hole entries
     return reply(200, {
       players,
       debug,
-      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.2'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
     });
   } catch (error) {
-    console.error('v6.1.2 GPT-5.6 direct full-image failure:', error);
+    console.error('v6.1.3 GPT-5.6 direct full-image failure:', error);
 
     if (error?.name === 'VisionParseError') {
       return reply(200, {
@@ -119,14 +119,14 @@ Before returning, silently confirm that every player has exactly 18 hole entries
           }
         },
         warning: 'GPT-5.6 returned a score response that could not be parsed.',
-        ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.2'
+        ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
       });
     }
 
     return reply(500, {
       error: error?.message || 'GPT-5.6 Sol direct scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.2'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
     });
   }
 };

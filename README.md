@@ -473,3 +473,13 @@ This is purely diagnostic. Successful v6.1 reads continue to use one GPT-5.6 Sol
 - One semantic score-reading call only.
 - The model is instructed to mentally orient and locate the scorecard within the full photograph.
 - Parse failures still expose the raw model response for diagnosis.
+
+
+## v6.1.3 Full-Image 2000px
+
+- Keeps the v6.1.2 direct GPT-5.6 Sol single-read architecture.
+- Preserves the entire photo and aspect ratio.
+- Adds only a lightweight client-side resize so the longest image dimension is at most 2000 pixels.
+- JPEG quality 0.90.
+- No crop, card rectangle, rotation, geometry, normalization, score-cell extraction, proofreader, consensus, or second pass.
+- Purpose: reduce request size / latency after the v6.1.2 inactivity timeout while preserving the full visual context.

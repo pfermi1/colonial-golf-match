@@ -165,7 +165,7 @@ async function prepareSelectedPhoto(input) {
   if (!file) return;
   status.textContent = 'Preparing photo...';
   try {
-    imageDataUrl = await readFileAsDataUrl(file);
+    imageDataUrl = await resizeImage(file, 2000, 0.90);
     preview.src = imageDataUrl;
     preview.classList.remove('hidden');
     readButton.disabled = false;
@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Sending the original full photo directly to GPT-5.6 Sol. No rotation, geometry, card rectangle, normalization, crops, or proofreader...';
+  status.textContent = 'Sending the full photo to GPT-5.6 Sol after a lightweight 2000px max-dimension resize. No crop, rotation, geometry, card rectangle, normalization, or proofreader...';
   try {
     const response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
@@ -790,7 +790,7 @@ function readFileAsDataUrl(file) {
   });
 }
 
-function resizeImage(file, maxWidth, quality) {
+function resizeImage(file, maxDimension, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Unable to read the image file.'));
@@ -798,7 +798,7 @@ function resizeImage(file, maxWidth, quality) {
       const img = new Image();
       img.onerror = () => reject(new Error('The selected file is not a readable image.'));
       img.onload = () => {
-        const scale = Math.min(1, maxWidth / img.width);
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
@@ -915,7 +915,7 @@ function renderCellDiagnostics(payload) {
 
   if (debug.semanticMode) {
     cellDiagnosticMeta.textContent =
-      'v6.1.2 diagnostic: the v6.1 GPT-5.6 Sol single read parsed successfully. No reading algorithm was changed.';
+      'v6.1.3 diagnostic: the v6.1 GPT-5.6 Sol single read parsed successfully. No reading algorithm was changed.';
     return;
   }
 
