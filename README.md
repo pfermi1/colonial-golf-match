@@ -490,3 +490,8 @@ This is purely diagnostic. Successful v6.1 reads continue to use one GPT-5.6 Sol
 The GPT-5.6 Sol score reader is unchanged from v6.1.3. The 2000px full-image input, prompt, single semantic read, score parsing, and review logic are unchanged.
 
 Only transport changed: the Responses API request starts with `background: true`, the Netlify function returns quickly with the OpenAI response ID, and the browser polls that same response until it completes. This prevents the long-lived Netlify request from hitting the inactivity timeout. Polling checks the same model response and does not launch duplicate reads.
+
+
+## v6.1.5 - Background transport output fix + exact player count
+
+The v6.1.3 GPT-5.6 Sol full-image reader remains intact. Background polling from v6.1.4 remains intact. The output-token allowance is increased so GPT-5.6 reasoning cannot terminate the response at the previous 2,200-token ceiling, which surfaced as `max_output_tokens (OpenAIResponseError)`. When the UI specifies 1-5 players, the prompt now requires exactly that many main handwritten player rows; this is especially important for five-man cards. No extra model read, crop pass, consensus pass, or proofreader was added.

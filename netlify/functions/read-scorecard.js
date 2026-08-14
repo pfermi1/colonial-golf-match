@@ -40,7 +40,7 @@ exports.handler = async function(event) {
     }
 
     const playerHint = Number.isInteger(expectedPlayers) && expectedPlayers >= 1 && expectedPlayers <= 5
-      ? `The user expects about ${expectedPlayers} handwritten player rows, but use the image itself as the source of truth.`
+      ? `The user has selected ${expectedPlayers} players for this card. Return exactly ${expectedPlayers} handwritten player rows from the main scoring section, in top-to-bottom order. Do not omit the fifth row when ${expectedPlayers} is 5.`
       : 'Identify all handwritten player score rows visible in the main scoring section.';
 
     const semanticPrompt = `
@@ -74,7 +74,7 @@ Return JSON only in exactly this shape:
 Before returning, silently confirm that every player has exactly 18 hole entries and that every value came from handwriting in that player's row.
 `;
 
-    // v6.1.4 transport-only change: create the same GPT-5.6 read in OpenAI
+    // v6.1.5 transport-only fix: create the same GPT-5.6 read in OpenAI
     // background mode. Netlify can return immediately, and the browser polls
     // for completion in short requests instead of holding one long connection.
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -93,7 +93,7 @@ Before returning, silently confirm that every player has exactly 18 hole entries
             { type: 'input_image', image_url: imageDataUrl, detail: 'original' }
           ]
         }],
-        max_output_tokens: 2200
+        max_output_tokens: 12000
       })
     });
 
@@ -107,7 +107,7 @@ Before returning, silently confirm that every player has exactly 18 hole entries
 
     return finishOrWait(raw);
   } catch (error) {
-    console.error('v6.1.4 GPT-5.6 background transport failure:', error);
+    console.error('v6.1.5 GPT-5.6 background transport failure:', error);
 
     if (error?.name === 'VisionParseError') {
       return reply(200, {
@@ -127,14 +127,14 @@ Before returning, silently confirm that every player has exactly 18 hole entries
           }
         },
         warning: 'GPT-5.6 returned a score response that could not be parsed.',
-        ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+        ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
       });
     }
 
     return reply(500, {
       error: error?.message || 'GPT-5.6 Sol background scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
     });
   }
 };
@@ -156,7 +156,7 @@ function finishOrWait(raw) {
       pending: true,
       responseId,
       openaiStatus: status || 'in_progress',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
     });
   }
 
@@ -200,7 +200,7 @@ function finishOrWait(raw) {
       semanticRowRead: semanticText,
       semanticParsed: parsed
     },
-    ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+    ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
   });
 }
 
