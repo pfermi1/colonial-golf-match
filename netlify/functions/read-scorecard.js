@@ -1,16 +1,36 @@
 const MODEL = 'gpt-5.6-sol';
 
 exports.handler = async function(event) {
-  if (event.httpMethod !== 'POST') {
-    return reply(405, { error: 'Method not allowed.' });
-  }
-
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return reply(500, { error: 'OPENAI_API_KEY is not configured in Netlify.' });
   }
 
   try {
+    if (event.httpMethod === 'GET') {
+      const responseId = String(event.queryStringParameters?.responseId || '').trim();
+      if (!/^resp_[A-Za-z0-9_-]+$/.test(responseId)) {
+        return reply(400, { error: 'A valid OpenAI responseId is required.' });
+      }
+
+      const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const raw = await response.json();
+      if (!response.ok) {
+        return reply(response.status, {
+          error: raw?.error?.message || `OpenAI polling failed (${response.status}).`,
+          errorName: 'OpenAIPollError'
+        });
+      }
+
+      return finishOrWait(raw);
+    }
+
+    if (event.httpMethod !== 'POST') {
+      return reply(405, { error: 'Method not allowed.' });
+    }
+
     const body = JSON.parse(event.body || '{}');
     const imageDataUrl = body.imageDataUrl;
     const expectedPlayers = Number(body.expectedPlayers);
@@ -54,51 +74,40 @@ Return JSON only in exactly this shape:
 Before returning, silently confirm that every player has exactly 18 hole entries and that every value came from handwriting in that player's row.
 `;
 
-    const semanticResponse = await callVision(apiKey, semanticPrompt, imageDataUrl, 2200);
-    const semanticText = extractOutputText(semanticResponse);
-    const parsed = parseJson(semanticText, 'direct full-image semantic score read');
-    const rawPlayers = Array.isArray(parsed?.players) ? parsed.players : [];
+    // v6.1.4 transport-only change: create the same GPT-5.6 read in OpenAI
+    // background mode. Netlify can return immediately, and the browser polls
+    // for completion in short requests instead of holding one long connection.
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        background: true,
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: semanticPrompt },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'original' }
+          ]
+        }],
+        max_output_tokens: 2200
+      })
+    });
 
-    const players = rawPlayers.slice(0, 5).map((player, index) => {
-      const scores = Array.isArray(player?.scores) ? player.scores.slice(0, 18) : [];
-      while (scores.length < 18) scores.push(null);
-
-      const cleanedScores = scores.map(value => {
-        if (value === null || value === undefined || value === '') return null;
-        const n = Number(value);
-        return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
+    const raw = await response.json();
+    if (!response.ok) {
+      return reply(response.status, {
+        error: raw?.error?.message || `OpenAI request failed (${response.status}).`,
+        errorName: 'OpenAIStartError'
       });
+    }
 
-      const modelUncertain = Array.isArray(player?.uncertainHoles)
-        ? player.uncertainHoles.map(Number).filter(h => Number.isInteger(h) && h >= 1 && h <= 18)
-        : [];
-      const nullHoles = cleanedScores.map((v, i) => v === null ? i + 1 : null).filter(Boolean);
-
-      return {
-        name: String(player?.name || `Player ${index + 1}`).trim(),
-        scores: cleanedScores,
-        uncertainHoles: [...new Set([...modelUncertain, ...nullHoles])].sort((a, b) => a - b)
-      };
-    });
-
-    const debug = {
-      semanticMode: true,
-      directFullImage: true,
-      preprocessingPassCount: 0,
-      semanticPassCount: 1,
-      semanticModel: MODEL,
-      semanticImageDetail: 'original',
-      semanticRowRead: semanticText,
-      semanticParsed: parsed
-    };
-
-    return reply(200, {
-      players,
-      debug,
-      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
-    });
+    return finishOrWait(raw);
   } catch (error) {
-    console.error('v6.1.3 GPT-5.6 direct full-image failure:', error);
+    console.error('v6.1.4 GPT-5.6 background transport failure:', error);
 
     if (error?.name === 'VisionParseError') {
       return reply(200, {
@@ -107,8 +116,7 @@ Before returning, silently confirm that every player has exactly 18 hole entries
         debug: {
           semanticMode: true,
           directFullImage: true,
-          preprocessingPassCount: 0,
-          semanticPassCount: 1,
+          transportMode: 'openai-background-polling',
           semanticModel: MODEL,
           semanticImageDetail: 'original',
           parseFailure: {
@@ -119,49 +127,87 @@ Before returning, silently confirm that every player has exactly 18 hole entries
           }
         },
         warning: 'GPT-5.6 returned a score response that could not be parsed.',
-        ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
+        ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
       });
     }
 
     return reply(500, {
-      error: error?.message || 'GPT-5.6 Sol direct scorecard read failed.',
+      error: error?.message || 'GPT-5.6 Sol background scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-v6.1.3'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
     });
   }
 };
 
-async function callVision(apiKey, prompt, imageDataUrl, max_output_tokens) {
-  const r = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      input: [{
-        role: 'user',
-        content: [
-          { type: 'input_text', text: prompt },
-          { type: 'input_image', image_url: imageDataUrl, detail: 'original' }
-        ]
-      }],
-      max_output_tokens
-    })
+function finishOrWait(raw) {
+  const status = String(raw?.status || '').toLowerCase();
+  const responseId = String(raw?.id || '');
+
+  if (status && status !== 'completed') {
+    if (status === 'failed' || status === 'cancelled' || status === 'incomplete') {
+      return reply(500, {
+        error: raw?.error?.message || raw?.incomplete_details?.reason || `OpenAI response ended with status ${status}.`,
+        errorName: 'OpenAIResponseError',
+        responseId,
+        openaiStatus: status
+      });
+    }
+    return reply(202, {
+      pending: true,
+      responseId,
+      openaiStatus: status || 'in_progress',
+      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+    });
+  }
+
+  const semanticText = extractOutputText(raw);
+  const parsed = parseJson(semanticText, 'direct full-image semantic score read');
+  const rawPlayers = Array.isArray(parsed?.players) ? parsed.players : [];
+
+  const players = rawPlayers.slice(0, 5).map((player, index) => {
+    const scores = Array.isArray(player?.scores) ? player.scores.slice(0, 18) : [];
+    while (scores.length < 18) scores.push(null);
+
+    const cleanedScores = scores.map(value => {
+      if (value === null || value === undefined || value === '') return null;
+      const n = Number(value);
+      return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
+    });
+
+    const modelUncertain = Array.isArray(player?.uncertainHoles)
+      ? player.uncertainHoles.map(Number).filter(h => Number.isInteger(h) && h >= 1 && h <= 18)
+      : [];
+    const nullHoles = cleanedScores.map((v, i) => v === null ? i + 1 : null).filter(Boolean);
+
+    return {
+      name: String(player?.name || `Player ${index + 1}`).trim(),
+      scores: cleanedScores,
+      uncertainHoles: [...new Set([...modelUncertain, ...nullHoles])].sort((a, b) => a - b)
+    };
   });
 
-  const raw = await r.json();
-  if (!r.ok) {
-    throw new Error(raw?.error?.message || `OpenAI request failed (${r.status}).`);
-  }
-  return raw;
+  return reply(200, {
+    players,
+    debug: {
+      semanticMode: true,
+      directFullImage: true,
+      preprocessingPassCount: 0,
+      semanticPassCount: 1,
+      semanticModel: MODEL,
+      semanticImageDetail: 'original',
+      transportMode: 'openai-background-polling',
+      responseId,
+      semanticRowRead: semanticText,
+      semanticParsed: parsed
+    },
+    ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.4'
+  });
 }
 
 function extractOutputText(r) {
-  if (typeof r.output_text === 'string') return r.output_text;
+  if (typeof r?.output_text === 'string') return r.output_text;
   const parts = [];
-  for (const item of r.output || []) {
+  for (const item of r?.output || []) {
     for (const c of item.content || []) {
       if (c.type === 'output_text' && typeof c.text === 'string') parts.push(c.text);
     }

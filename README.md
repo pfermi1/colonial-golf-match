@@ -483,3 +483,10 @@ This is purely diagnostic. Successful v6.1 reads continue to use one GPT-5.6 Sol
 - JPEG quality 0.90.
 - No crop, card rectangle, rotation, geometry, normalization, score-cell extraction, proofreader, consensus, or second pass.
 - Purpose: reduce request size / latency after the v6.1.2 inactivity timeout while preserving the full visual context.
+
+
+## v6.1.4 - Timeout-safe background transport
+
+The GPT-5.6 Sol score reader is unchanged from v6.1.3. The 2000px full-image input, prompt, single semantic read, score parsing, and review logic are unchanged.
+
+Only transport changed: the Responses API request starts with `background: true`, the Netlify function returns quickly with the OpenAI response ID, and the browser polls that same response until it completes. This prevents the long-lived Netlify request from hitting the inactivity timeout. Polling checks the same model response and does not launch duplicate reads.

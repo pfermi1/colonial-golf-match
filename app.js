@@ -178,15 +178,43 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Sending the full photo to GPT-5.6 Sol after a lightweight 2000px max-dimension resize. No crop, rotation, geometry, card rectangle, normalization, or proofreader...';
+  status.textContent = 'Starting the GPT-5.6 Sol scorecard read...';
+
   try {
-    const response = await fetch('/.netlify/functions/read-scorecard', {
+    let response = await fetch('/.netlify/functions/read-scorecard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageDataUrl, expectedPlayers: Number(playerCount.value) })
     });
-    if (!response.ok) throw new Error(await readErrorResponse(response));
-      const payload = await response.json();
+
+    if (!response.ok && response.status !== 202) throw new Error(await readErrorResponse(response));
+    let payload = await response.json();
+
+    const startedAt = Date.now();
+    let pollCount = 0;
+
+    while (payload?.pending && payload?.responseId) {
+      pollCount += 1;
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      status.textContent = `GPT-5.6 is reading the card... ${elapsed}s`;
+
+      // Polling does not start another model read. It checks the same OpenAI
+      // response ID, so there is one score read and no duplicate charge.
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      response = await fetch(`/.netlify/functions/read-scorecard?responseId=${encodeURIComponent(payload.responseId)}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (!response.ok && response.status !== 202) throw new Error(await readErrorResponse(response));
+      payload = await response.json();
+
+      if (Date.now() - startedAt > 240000) {
+        throw new Error('GPT-5.6 is still processing after 4 minutes. Please try again later.');
+      }
+    }
+
     pendingRawPayload = payload;
     rawOcrOutput.textContent = JSON.stringify(payload, null, 2);
     renderCellDiagnostics(payload);
