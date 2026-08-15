@@ -57,6 +57,9 @@ Your task:
 - For each player, follow that SAME handwritten row across the card.
 - Read holes 1 through 9 in order, skip the OUT total cell, then read holes 10 through 18 in order.
 - Each score should normally be a single handwritten integer from 1 through 7. If a handwritten score is truly unreadable, return null rather than borrowing a nearby printed number.
+- For EVERY hole, also return a visual confidence from 0.00 to 1.00 for that exact handwritten digit. Confidence is about what the handwriting visibly says, NOT whether the score seems plausible for golf.
+- Use high confidence (0.95-1.00) only when the digit is visually clear. Use lower confidence when strokes are faint, overwritten, circled, corrected, crowded by another mark, or when two digits are genuinely plausible.
+- If confidence is below 0.90, include that hole number in uncertainHoles even if you still choose the most likely score. Never change a score just to make a total work.
 - Do not use printed OUT/IN/TOT values as hole scores.
 - Do not invent a player from the PAR row or scorer/attest area.
 
@@ -66,15 +69,16 @@ Return JSON only in exactly this shape:
     {
       "name": "handwritten player name",
       "scores": [18 values, each an integer 1-7 or null],
+      "confidence": [18 numbers from 0.00 to 1.00, one per hole],
       "uncertainHoles": [hole numbers that are genuinely unclear]
     }
   ]
 }
 
-Before returning, silently confirm that every player has exactly 18 hole entries and that every value came from handwriting in that player's row.
+Before returning, silently confirm that every player has exactly 18 score entries AND exactly 18 confidence entries, and that every value came from handwriting in that player's row.
 `;
 
-    // v6.1.5 transport-only fix: create the same GPT-5.6 read in OpenAI
+    // v6.1.6 keeps the v6.1.5 transport and adds single-pass visual confidence flags: create the same GPT-5.6 read in OpenAI
     // background mode. Netlify can return immediately, and the browser polls
     // for completion in short requests instead of holding one long connection.
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -107,7 +111,7 @@ Before returning, silently confirm that every player has exactly 18 hole entries
 
     return finishOrWait(raw);
   } catch (error) {
-    console.error('v6.1.5 GPT-5.6 background transport failure:', error);
+    console.error('v6.1.6 GPT-5.6 confidence-read failure:', error);
 
     if (error?.name === 'VisionParseError') {
       return reply(200, {
@@ -117,6 +121,7 @@ Before returning, silently confirm that every player has exactly 18 hole entries
           semanticMode: true,
           directFullImage: true,
           transportMode: 'openai-background-polling',
+      uncertaintyMode: 'single-pass-visual-confidence-below-0.90',
           semanticModel: MODEL,
           semanticImageDetail: 'original',
           parseFailure: {
@@ -127,14 +132,14 @@ Before returning, silently confirm that every player has exactly 18 hole entries
           }
         },
         warning: 'GPT-5.6 returned a score response that could not be parsed.',
-        ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
+        ocrMode: 'gpt-5.6-sol-direct-full-image-confidence-v6.1.6'
       });
     }
 
     return reply(500, {
       error: error?.message || 'GPT-5.6 Sol background scorecard read failed.',
       errorName: error?.name || 'Error',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-confidence-v6.1.6'
     });
   }
 };
@@ -156,7 +161,7 @@ function finishOrWait(raw) {
       pending: true,
       responseId,
       openaiStatus: status || 'in_progress',
-      ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
+      ocrMode: 'gpt-5.6-sol-direct-full-image-confidence-v6.1.6'
     });
   }
 
@@ -174,15 +179,26 @@ function finishOrWait(raw) {
       return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
     });
 
+    const rawConfidence = Array.isArray(player?.confidence) ? player.confidence.slice(0, 18) : [];
+    while (rawConfidence.length < 18) rawConfidence.push(null);
+    const confidence = rawConfidence.map(value => {
+      const n = Number(value);
+      return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null;
+    });
+
     const modelUncertain = Array.isArray(player?.uncertainHoles)
       ? player.uncertainHoles.map(Number).filter(h => Number.isInteger(h) && h >= 1 && h <= 18)
       : [];
+    const lowConfidenceHoles = confidence
+      .map((v, i) => (v === null || v < 0.90) ? i + 1 : null)
+      .filter(Boolean);
     const nullHoles = cleanedScores.map((v, i) => v === null ? i + 1 : null).filter(Boolean);
 
     return {
       name: String(player?.name || `Player ${index + 1}`).trim(),
       scores: cleanedScores,
-      uncertainHoles: [...new Set([...modelUncertain, ...nullHoles])].sort((a, b) => a - b)
+      confidence,
+      uncertainHoles: [...new Set([...modelUncertain, ...lowConfidenceHoles, ...nullHoles])].sort((a, b) => a - b)
     };
   });
 
@@ -196,11 +212,12 @@ function finishOrWait(raw) {
       semanticModel: MODEL,
       semanticImageDetail: 'original',
       transportMode: 'openai-background-polling',
+      uncertaintyMode: 'single-pass-visual-confidence-below-0.90',
       responseId,
       semanticRowRead: semanticText,
       semanticParsed: parsed
     },
-    ocrMode: 'gpt-5.6-sol-direct-full-image-background-v6.1.5'
+    ocrMode: 'gpt-5.6-sol-direct-full-image-confidence-v6.1.6'
   });
 }
 

@@ -495,3 +495,13 @@ Only transport changed: the Responses API request starts with `background: true`
 ## v6.1.5 - Background transport output fix + exact player count
 
 The v6.1.3 GPT-5.6 Sol full-image reader remains intact. Background polling from v6.1.4 remains intact. The output-token allowance is increased so GPT-5.6 reasoning cannot terminate the response at the previous 2,200-token ceiling, which surfaced as `max_output_tokens (OpenAIResponseError)`. When the UI specifies 1-5 players, the prompt now requires exactly that many main handwritten player rows; this is especially important for five-man cards. No extra model read, crop pass, consensus pass, or proofreader was added.
+
+
+## v6.1.6 - Single-pass confidence flags
+
+- Keeps the v6.1.5 GPT-5.6 Sol full-image reader and background transport.
+- Still performs exactly one score-reading model response per card.
+- Adds an 18-value visual confidence array for each player within that same response.
+- Scores below 0.90 visual confidence are marked yellow for manual review.
+- No second read, consensus, voting, proofreader, geometry, crop, or automatic score replacement.
+- Confidence is explicitly defined as confidence in the visible handwritten digit, not golf-score plausibility or arithmetic totals.

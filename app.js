@@ -178,7 +178,7 @@ async function prepareSelectedPhoto(input) {
 readButton.addEventListener('click', async () => {
   if (!imageDataUrl) return;
   readButton.disabled = true;
-  status.textContent = 'Starting the GPT-5.6 Sol scorecard read...';
+  status.textContent = 'Starting the GPT-5.6 Sol scorecard read with uncertainty flags...';
 
   try {
     let response = await fetch('/.netlify/functions/read-scorecard', {
@@ -301,11 +301,15 @@ function showPanel(panel) {
 function normalizeData(data) {
   const expected = Number(playerCount.value);
   const players = Array.isArray(data.players) ? data.players.slice(0, expected) : [];
-  while (players.length < expected) players.push({ name: '', scores: Array(18).fill(''), uncertainHoles: [] });
+  while (players.length < expected) players.push({ name: '', scores: Array(18).fill(''), confidence: Array(18).fill(null), uncertainHoles: [] });
   return {
     players: players.map(p => ({
       name: typeof p.name === 'string' ? p.name : '',
       scores: Array.from({ length: 18 }, (_, i) => validScore(p.scores?.[i])),
+      confidence: Array.from({ length: 18 }, (_, i) => {
+        const n = Number(p.confidence?.[i]);
+        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null;
+      }),
       uncertainHoles: [...new Set([
         ...(Array.isArray(p.uncertainHoles) ? p.uncertainHoles : []),
         ...Array.from({ length: 18 }, (_, i) => Number(p.scores?.[i]) === 1 ? i + 1 : null).filter(Boolean)
@@ -364,6 +368,11 @@ function makeScoreRow(player, playerIndex, start) {
     input.dataset.hole = i;
     input.setAttribute('aria-label', `Player ${playerIndex + 1}, hole ${i + 1}`);
     if (player.uncertainHoles.includes(i + 1)) input.classList.add('uncertain');
+    const confidence = player.confidence?.[i];
+    if (Number.isFinite(confidence)) {
+      input.title = `GPT visual confidence: ${Math.round(confidence * 100)}%`;
+      input.setAttribute('aria-description', `GPT visual confidence ${Math.round(confidence * 100)} percent`);
+    }
 
     const selectCurrentScore = () => requestAnimationFrame(() => input.select());
     input.addEventListener('focus', selectCurrentScore);
